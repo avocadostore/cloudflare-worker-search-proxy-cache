@@ -1,43 +1,384 @@
-interface Env {}
+import { env } from "cloudflare:workers";
+
+interface Env {
+	ALGOLIA_APPLICATION_ID: string;
+	DATADOG_API_KEY: string;
+	ALGOLIA_API_KEY: string;
+}
+
+// ============================================================================
+// TYPES & INTERFACES
+// ============================================================================
+
+interface SearchRequest {
+	query?: string;
+	[key: string]: unknown;
+}
+
+interface IncomingBody {
+	requests?: SearchRequest[];
+	[key: string]: unknown;
+}
+
+interface ParseResult {
+	body?: IncomingBody;
+	error?: Response;
+}
+
+interface DatadogLog {
+	ddsource: string;
+	ddtags: string;
+	hostname?: string;
+	message: string;
+	status: string;
+	[key: string]: unknown;
+}
+
+interface RequestContext {
+	url: URL;
+	origin: string;
+	isSSRRequest: boolean;
+	method: string;
+	pathname: string;
+	searchParams: URLSearchParams;
+}
+
+// ============================================================================
+// CONFIGURATION & CONSTANTS
+// ============================================================================
+
+const AGENT =
+	"Algolia%20for%20JavaScript%20(5.8.1)%3B%20Lite%20(5.8.1)%3B%20Browser%3B%20autocomplete-core%20(1.17.4)%3B%20autocomplete-js%20(1.17.4)" as const;
+
+const getHosts = (applicationId: string): readonly string[] => [
+	applicationId + "-dsn.algolia.net",
+	applicationId + "-1.algolianet.com",
+	applicationId + "-2.algolianet.com",
+	applicationId + "-3.algolianet.com",
+];
+const DATADOG_ENDPOINT = "https://http-intake.logs.datadoghq.eu/api/v2/logs" as const;
+const SERVICE_NAME = "algolia-proxy" as const;
+
+// Cleaned up regex to remove duplicates
+const ALLOWED_QUERY_REGEX =
+	/^[\x20-\x7E\xA0-\xFF★•‚„›‹–…‒√♥ᵘᵖⓇ™⎥€∴ː∅ĀāČčǝĒēЁёęłıŌō⌀ŠšẞŪū]+$/;
+
+const ALLOWED_ORIGIN_PATTERN = /^https:\/\/([a-z0-9-]+\.)*avocadostore\.(de|dev)$/;
+const LOCALHOST_PATTERN = /^http:\/\/localhost(:\d+)?$/;
+const ENVIRONMENT = "production";
+const CLOUDFLARE_DASHBOARD = "https://dash.cloudflare.com";
+
+// ============================================================================
+// MAIN HANDLER
+// ============================================================================
+
 export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		async function sha256(message) {
-			// encode as UTF-8
-			const msgBuffer = await new TextEncoder().encode(message);
-			// hash the message
-			const hashBuffer = await crypto.subtle.digest("SHA-256", msgBuffer);
-			// convert bytes to hex string
-			return [...new Uint8Array(hashBuffer)]
-				.map((b) => b.toString(16).padStart(2, "0"))
-				.join("");
+	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+		const startTime = Date.now();
+		const url = new URL(request.url);
+		const requestOrigin = request.headers.get("Origin");
+		const origin = requestOrigin || "";
+		const isSSRRequest = request.headers.has("x-ssr-request");
+
+		const reqContext: RequestContext = {
+			url,
+			origin,
+			isSSRRequest,
+			method: request.method,
+			pathname: url.pathname,
+			searchParams: url.searchParams
+		};
+
+		if (request.method === "OPTIONS") {
+			return handleOptions(reqContext);
 		}
-		try {
-			if (request.method.toUpperCase() === "POST") {
-				const body = await request.clone().text();
-				// Hash the request body to use it as a part of the cache key
-				const hash = await sha256(body);
-				const cacheUrl = new URL(request.url);
-				// Store the URL in cache by prepending the body's hash
-				cacheUrl.pathname = "/posts" + cacheUrl.pathname + hash;
-				// Convert to a GET to be able to cache
-				const cacheKey = new Request(cacheUrl.toString(), {
-					headers: request.headers,
-					method: "GET",
+
+		let bodyStr: string | undefined;
+		if (request.method === "POST") {
+			const result = await parseRequestBody(request);
+			if (result.error) {
+				ctx.waitUntil(sendLogToDatadog("error", "Request validation failed", {
+					origin,
+					url: request.url,
+					method: request.method,
+					error: "Invalid query parameter or malformed JSON",
+				}, env));
+				return result.error;
+			}
+			bodyStr = JSON.stringify(result.body);
+		}
+
+		// Caching Logic
+		const cache = caches.default;
+		const cacheKeyParam = reqContext.searchParams.get("cacheKey") || request.headers.get("X-AS-Cache-Key");
+		let cacheKeyRequest: Request | undefined;
+		let response: Response | undefined;
+		let isCacheHit = false;
+
+		if (request.method === "POST" && cacheKeyParam) {
+			cacheKeyRequest = new Request(url.toString(), {
+				method: "GET",
+				headers: request.headers
+			});
+			const cachedResponse = await cache.match(cacheKeyRequest);
+			if (cachedResponse) {
+				response = cachedResponse;
+				isCacheHit = true;
+			}
+		}
+
+		if (!response) {
+			response = await fetchFromAlgolia(reqContext, request.headers, bodyStr, env);
+
+			if (cacheKeyRequest && response.ok) {
+				const responseToCache = response.clone();
+				const headers = new Headers(responseToCache.headers);
+				headers.set("Cache-Control", "public, max-age=600");
+
+				const cachedResponse = new Response(responseToCache.body, {
+					status: responseToCache.status,
+					statusText: responseToCache.statusText,
+					headers: headers
 				});
 
-				const cache = caches.default;
-				// Find the cache key in the cache
-				let response = await cache.match(cacheKey);
-				// Otherwise, fetch response to POST request from origin
-				if (!response) {
-					response = await fetch(request);
-					ctx.waitUntil(cache.put(cacheKey, response.clone()));
-				}
-				return response;
+				ctx.waitUntil(cache.put(cacheKeyRequest, cachedResponse));
 			}
-			return fetch(request);
-		} catch (e) {
-			return new Response("Error thrown " + e.message);
 		}
+
+		const duration = Date.now() - startTime;
+		ctx.waitUntil(logRequest(reqContext, request.headers, response, duration, isCacheHit, bodyStr, env));
+
+		return addCorsHeaders(response, origin, isSSRRequest);
 	},
 } satisfies ExportedHandler<Env>;
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+function handleOptions(ctx: RequestContext): Response {
+	const headers: Record<string, string> = {
+		"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+		"Access-Control-Allow-Headers": "Content-Type, x-algolia-agent, x-algolia-api-key, x-algolia-application-id, x-as-cache-key, x-ssr-request",
+		"Access-Control-Max-Age": "86400",
+	};
+
+	if (ctx.isSSRRequest) {
+		headers["Access-Control-Allow-Origin"] = "https://www.avocadostore.de";
+	} else if (ctx.origin && isOriginAllowed(ctx.origin)) {
+		headers["Access-Control-Allow-Origin"] = ctx.origin;
+		headers["Vary"] = "Origin";
+	} else {
+		headers["Access-Control-Allow-Origin"] = "https://www.avocadostore.de";
+	}
+
+	return new Response(null, {
+		status: 204,
+		headers,
+	});
+}
+
+async function fetchFromAlgolia(ctx: RequestContext, originalHeaders: Headers, bodyStr?: string, env?: Env): Promise<Response> {
+	const { searchParams, pathname } = ctx;
+	searchParams.set("x-algolia-api-key", env?.ALGOLIA_API_KEY || "");
+	searchParams.set("x-algolia-application-id", env?.ALGOLIA_APPLICATION_ID || "");
+	searchParams.set("x-algolia-agent", AGENT);
+
+	const search = "?" + searchParams.toString();
+	const headers: Record<string, string> = {};
+	for (const [key, value] of originalHeaders.entries()) {
+		headers[key] = value;
+	}
+
+	if (pathname === "/1/events") {
+		const insightsUrl = "https://insights.algolia.io/1/events" + search;
+		try {
+			return await fetch(insightsUrl, {
+				method: ctx.method,
+				headers,
+				body: bodyStr,
+			});
+		} catch {
+			return new Response("Failed to reach Algolia Insights endpoint", { status: 502 });
+		}
+	}
+
+	const hosts = getHosts(env?.ALGOLIA_APPLICATION_ID || "");
+	return await tryAlgoliaHosts(pathname, search, ctx.method, headers, bodyStr, hosts);
+}
+
+function isInvalidQuery(requests: SearchRequest[]): boolean {
+	if (requests.every((req) => req.query === "" || req.query === undefined)) {
+		return false;
+	}
+
+	let hasLongQuery = false;
+	for (const req of requests) {
+		const queryValue = req.query;
+		if (queryValue) {
+			const query = String(queryValue);
+			if (query.length >= 3) {
+				hasLongQuery = true;
+			}
+			if (!ALLOWED_QUERY_REGEX.test(query)) {
+				return true;
+			}
+		}
+	}
+	return !hasLongQuery;
+}
+
+async function parseRequestBody(request: Request): Promise<ParseResult> {
+	try {
+		const body = (await request.json()) as IncomingBody;
+		if (body?.requests && isInvalidQuery(body.requests)) {
+			return {
+				error: new Response('{"error":"Invalid query parameter"}', {
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				}),
+			};
+		}
+		return { body };
+	} catch (e) {
+		const message = e instanceof Error ? e.message : String(e);
+		const escapedMessage = message.replaceAll('"', String.raw`\"`);
+		return {
+			error: new Response(
+				`{"error":"Malformed JSON body","details":"${escapedMessage}"}`,
+				{
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				}
+			),
+		};
+	}
+}
+
+async function tryAlgoliaHosts(
+	pathname: string,
+	search: string,
+	method: string,
+	headers: Record<string, string>,
+	bodyStr?: string,
+	hosts?: readonly string[]
+): Promise<Response> {
+	for (const host of hosts || []) {
+		try {
+			const url = "https://" + host + pathname + search;
+			const response = await fetch(url, {
+				method,
+				headers,
+				body: bodyStr,
+			});
+
+			if (response.ok) {
+				return response;
+			}
+		} catch {
+			// Network error, continue to next host
+		}
+	}
+
+	return new Response("All Algolia hosts failed", { status: 502 });
+}
+
+function isOriginAllowed(origin: string): boolean {
+	return ALLOWED_ORIGIN_PATTERN.test(origin) || LOCALHOST_PATTERN.test(origin) || origin === CLOUDFLARE_DASHBOARD;
+}
+
+function addCorsHeaders(response: Response, origin: string | null, isSSRRequest: boolean): Response {
+	const headers = new Headers(response.headers);
+
+	if (isSSRRequest || !origin || !isOriginAllowed(origin)) {
+		headers.set("Access-Control-Allow-Origin", "https://www.avocadostore.de");
+	} else {
+		headers.set("Access-Control-Allow-Origin", origin);
+		headers.set("Vary", "Origin");
+	}
+
+	headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+	headers.set("Access-Control-Allow-Headers", "Content-Type, x-algolia-agent, x-algolia-api-key, x-algolia-application-id, x-as-cache-key, x-ssr-request");
+	headers.set("Access-Control-Max-Age", "86400");
+
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
+}
+
+async function logRequest(
+	ctx: RequestContext,
+	requestHeaders: Headers,
+	response: Response,
+	duration: number,
+	isCacheHit: boolean,
+	bodyStr?: string,
+	envParam?: Env
+): Promise<void> {
+	const logContext: Record<string, unknown> = {
+		origin: ctx.origin,
+		url: ctx.url.toString(),
+		method: ctx.method,
+		status: response.status,
+		duration_ms: duration,
+		pathname: ctx.pathname,
+		user_agent: requestHeaders.get("User-Agent") || "unknown",
+		cache_hit: isCacheHit
+	};
+
+	const queryParams: Record<string, string> = {};
+	for (const [key, value] of ctx.searchParams.entries()) {
+		queryParams[key] = value;
+	}
+	logContext.query_parameters = queryParams;
+
+	const reqHeadersObj: Record<string, string> = {};
+	for (const [key, value] of requestHeaders.entries()) {
+		reqHeadersObj[key] = value;
+	}
+	logContext.request_headers = reqHeadersObj;
+
+	if (bodyStr) {
+		logContext.request_body = bodyStr;
+	}
+	await sendLogToDatadog(
+		response.ok ? "info" : "error",
+		"Algolia proxy request to " + ctx.pathname + (response.ok ? " succeeded" : " failed"),
+		logContext,
+		envParam
+	);
+}
+
+async function sendLogToDatadog(
+	level: "info" | "error" | "warn",
+	message: string,
+	context: Record<string, unknown> = {},
+	envParam?: Env
+): Promise<void> {
+	try {
+		const log: DatadogLog = {
+			ddsource: "cloudflare-snippet",
+			ddtags: "service:" + SERVICE_NAME + ",env:" + ENVIRONMENT,
+			message,
+			status: level,
+			timestamp: new Date().toISOString(),
+			service: SERVICE_NAME,
+			env: ENVIRONMENT,
+			...context,
+		};
+
+		await fetch(DATADOG_ENDPOINT, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"DD-API-KEY": envParam?.DATADOG_API_KEY || "",
+			},
+			body: JSON.stringify(log),
+		});
+	} catch (error) {
+		console.error("Failed to send log to Datadog:", error);
+	}
+}
+
