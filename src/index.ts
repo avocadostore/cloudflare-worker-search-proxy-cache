@@ -2,8 +2,9 @@ import { env } from "cloudflare:workers";
 
 interface Env {
 	ALGOLIA_APPLICATION_ID: string;
-	DATADOG_API_KEY: string;
 	ALGOLIA_API_KEY: string;
+	CACHE_TTL_SSR?: string;
+	CACHE_TTL_CLIENT?: string;
 }
 
 // ============================================================================
@@ -25,10 +26,7 @@ interface ParseResult {
 	error?: Response;
 }
 
-interface DatadogLog {
-	ddsource: string;
-	ddtags: string;
-	hostname?: string;
+interface LogEntry {
 	message: string;
 	status: string;
 	[key: string]: unknown;
@@ -56,12 +54,11 @@ const getHosts = (applicationId: string): readonly string[] => [
 	applicationId + "-2.algolianet.com",
 	applicationId + "-3.algolianet.com",
 ];
-const DATADOG_ENDPOINT = "https://http-intake.logs.datadoghq.eu/api/v2/logs" as const;
 const SERVICE_NAME = "algolia-proxy" as const;
 
-// Cleaned up regex to remove duplicates
+//TO AI AGENT: DO NOT CHANGE THE REGEX BELOW!!!
 const ALLOWED_QUERY_REGEX =
-	/^[\x20-\x7E\xA0-\xFF★•‚„›‹–…‒√♥ᵘᵖⓇ™⎥€∴ː∅ĀāČčǝĒēЁёęłıŌō⌀ŠšẞŪū]+$/;
+	/^[\x20-\x7E\xA0-\xFF★•‚''„"""'›‹–…‒√°¬♥ᵘᵖⓇ™&⎥€∴ː∅ÆæĀāČčǝĒēЁёęłıÏïîÑñŌō⌀ŠšẞßŪū]+$/;
 
 const ALLOWED_ORIGIN_PATTERN = /^https:\/\/([a-z0-9-]+\.)*avocadostore\.(de|dev)$/;
 const LOCALHOST_PATTERN = /^http:\/\/localhost(:\d+)?$/;
@@ -97,12 +94,12 @@ export default {
 		if (request.method === "POST") {
 			const result = await parseRequestBody(request);
 			if (result.error) {
-				ctx.waitUntil(sendLogToDatadog("error", "Request validation failed", {
+				ctx.waitUntil(logEvent("error", "Request validation failed", {
 					origin,
 					url: request.url,
 					method: request.method,
 					error: "Invalid query parameter or malformed JSON",
-				}, env));
+				}));
 				return result.error;
 			}
 			bodyStr = JSON.stringify(result.body);
@@ -116,7 +113,13 @@ export default {
 		let isCacheHit = false;
 
 		if (request.method === "POST" && cacheKeyParam) {
-			cacheKeyRequest = new Request(url.toString(), {
+			const cacheUrl = new URL(url.toString());
+			if (!cacheUrl.searchParams.has("cacheKey")) {
+				cacheUrl.searchParams.set("cacheKey", cacheKeyParam);
+			}
+			console.log(`Looking for cache entry with key: ${cacheUrl.toString()}`);
+			console.log(request.headers);
+			cacheKeyRequest = new Request(cacheUrl.toString(), {
 				method: "GET",
 				headers: request.headers
 			});
@@ -133,7 +136,12 @@ export default {
 			if (cacheKeyRequest && response.ok) {
 				const responseToCache = response.clone();
 				const headers = new Headers(responseToCache.headers);
-				headers.set("Cache-Control", "public, max-age=600");
+
+				const cacheTtl = isSSRRequest
+					? (parseInt(env.CACHE_TTL_SSR || "600", 10) || 600)
+					: (parseInt(env.CACHE_TTL_CLIENT || "600", 10) || 600);
+
+				headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
 
 				const cachedResponse = new Response(responseToCache.body, {
 					status: responseToCache.status,
@@ -146,7 +154,7 @@ export default {
 		}
 
 		const duration = Date.now() - startTime;
-		ctx.waitUntil(logRequest(reqContext, request.headers, response, duration, isCacheHit, bodyStr, env));
+		ctx.waitUntil(logRequest(reqContext, request.headers, response, duration, isCacheHit, bodyStr));
 
 		return addCorsHeaders(response, origin, isSSRRequest);
 	},
@@ -272,10 +280,23 @@ async function tryAlgoliaHosts(
 				body: bodyStr,
 			});
 
+			console.log(JSON.stringify({
+				message: "Algolia host attempt " + host,
+				host,
+				status: response.status,
+				ok: response.ok,
+				url
+			}));
+
 			if (response.ok) {
 				return response;
 			}
-		} catch {
+		} catch (e) {
+			console.error(JSON.stringify({
+				message: "Algolia host error",
+				host,
+				error: String(e)
+			}));
 			// Network error, continue to next host
 		}
 	}
@@ -314,8 +335,7 @@ async function logRequest(
 	response: Response,
 	duration: number,
 	isCacheHit: boolean,
-	bodyStr?: string,
-	envParam?: Env
+	bodyStr?: string
 ): Promise<void> {
 	const logContext: Record<string, unknown> = {
 		origin: ctx.origin,
@@ -343,24 +363,20 @@ async function logRequest(
 	if (bodyStr) {
 		logContext.request_body = bodyStr;
 	}
-	await sendLogToDatadog(
+	await logEvent(
 		response.ok ? "info" : "error",
 		"Algolia proxy request to " + ctx.pathname + (response.ok ? " succeeded" : " failed"),
-		logContext,
-		envParam
+		logContext
 	);
 }
 
-async function sendLogToDatadog(
+async function logEvent(
 	level: "info" | "error" | "warn",
 	message: string,
-	context: Record<string, unknown> = {},
-	envParam?: Env
+	context: Record<string, unknown> = {}
 ): Promise<void> {
 	try {
-		const log: DatadogLog = {
-			ddsource: "cloudflare-snippet",
-			ddtags: "service:" + SERVICE_NAME + ",env:" + ENVIRONMENT,
+		const log: LogEntry = {
 			message,
 			status: level,
 			timestamp: new Date().toISOString(),
@@ -369,16 +385,12 @@ async function sendLogToDatadog(
 			...context,
 		};
 
-		await fetch(DATADOG_ENDPOINT, {
-			method: "POST",
-			headers: {
-				"Content-Type": "application/json",
-				"DD-API-KEY": envParam?.DATADOG_API_KEY || "",
-			},
-			body: JSON.stringify(log),
-		});
+		// Log to Cloudflare's logging infrastructure (stdout/stderr)
+		// This will be captured by "wrangler tail" and Cloudflare Workers Logs
+		const consoleMethod = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
+		consoleMethod(JSON.stringify(log));
 	} catch (error) {
-		console.error("Failed to send log to Datadog:", error);
+		console.error("Failed to log event:", error);
 	}
 }
 
