@@ -1,43 +1,43 @@
-interface Env {
+type Env = {
 	ALGOLIA_APPLICATION_ID: string;
 	ALGOLIA_API_KEY: string;
 	CACHE_TTL_SSR?: string;
 	CACHE_TTL_CLIENT?: string;
-}
+};
 
 // ============================================================================
 // TYPES & INTERFACES
 // ============================================================================
 
-interface SearchRequest {
+type SearchRequest = {
 	query?: string;
 	[key: string]: unknown;
-}
+};
 
-interface IncomingBody {
+type IncomingBody = {
 	requests?: SearchRequest[];
 	[key: string]: unknown;
-}
+};
 
-interface ParseResult {
+type ParseResult = {
 	body?: IncomingBody;
 	error?: Response;
-}
+};
 
-interface LogEntry {
+type LogEntry = {
 	message: string;
 	status: string;
 	[key: string]: unknown;
-}
+};
 
-interface RequestContext {
+type RequestContext = {
 	url: URL;
 	origin: string;
 	isSSRRequest: boolean;
 	method: string;
 	pathname: string;
 	searchParams: URLSearchParams;
-}
+};
 
 // ============================================================================
 // CONFIGURATION & CONSTANTS
@@ -63,6 +63,11 @@ const ALLOWED_ORIGIN_PATTERN =
 const LOCALHOST_PATTERN = /^http:\/\/localhost(:\d+)?$/;
 const ENVIRONMENT = "production";
 const CLOUDFLARE_DASHBOARD = "https://dash.cloudflare.com";
+const BLACKLIST_HEADERS_FOR_GET = [
+	"content-type",
+	"content-length",
+	"transfer-encoding",
+];
 
 // ============================================================================
 // MAIN HANDLER
@@ -143,11 +148,7 @@ export default {
 			const cacheHeaders = new Headers();
 			for (const [key, value] of request.headers.entries()) {
 				const lowerKey = key.toLowerCase();
-				if (
-					lowerKey !== "content-type" &&
-					lowerKey !== "content-length" &&
-					lowerKey !== "transfer-encoding"
-				) {
+				if (!BLACKLIST_HEADERS_FOR_GET.includes(lowerKey)) {
 					cacheHeaders.set(key, value);
 				}
 			}
@@ -210,7 +211,7 @@ export default {
 
 				const cacheTtl = isSSRRequest
 					? parseInt(env.CACHE_TTL_SSR || "600", 10) || 600
-					: parseInt(env.CACHE_TTL_CLIENT || "600", 10) || 600;
+					: parseInt(env.CACHE_TTL_CLIENT || "0", 10) || 0;
 
 				headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
 
@@ -233,11 +234,7 @@ export default {
 				const storeCacheHeaders = new Headers();
 				for (const [key, value] of request.headers.entries()) {
 					const lowerKey = key.toLowerCase();
-					if (
-						lowerKey !== "content-type" &&
-						lowerKey !== "content-length" &&
-						lowerKey !== "transfer-encoding"
-					) {
+					if (!BLACKLIST_HEADERS_FOR_GET.includes(lowerKey)) {
 						storeCacheHeaders.set(key, value);
 					}
 				}
@@ -537,13 +534,14 @@ async function logEvent(
 
 		// Log to Cloudflare's logging infrastructure (stdout/stderr)
 		// This will be captured by "wrangler tail" and Cloudflare Workers Logs
-		const consoleMethod =
-			level === "error"
-				? console.error
-				: level === "warn"
-				? console.warn
-				: console.log;
-		consoleMethod(JSON.stringify(log));
+		if (level === "error") {
+			// Additionally log to stderr for errors
+			console.error(JSON.stringify(log));
+		} else if (level === "warn") {
+			console.warn(JSON.stringify(log));
+		} else {
+			console.log(JSON.stringify(log));
+		}
 	} catch (error) {
 		console.error("Failed to log event:", error);
 	}
