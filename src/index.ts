@@ -128,8 +128,9 @@ export default {
 				isSSR: isSSRRequest
 			}));
 
-			// Use URL-only cache key (no headers) as Cloudflare Cache API matches by URL
-			const cachedResponse = await cache.match(cacheKeyUrl);
+			// Create a GET request for cache lookup (POST requests are not cached by default)
+			const cacheRequest = new Request(cacheKeyUrl);
+			const cachedResponse = await cache.match(cacheRequest);
 			if (cachedResponse) {
 				console.log(JSON.stringify({
 					message: "Cache hit",
@@ -173,8 +174,8 @@ export default {
 					responseStatus: response.status
 				}));
 
-				// Store using URL string as the cache key
-				ctx.waitUntil(cache.put(cacheKeyUrl, cachedResponse));
+				// Store using Request object as the cache key
+				ctx.waitUntil(cache.put(new Request(cacheKeyUrl), cachedResponse));
 			}
 		}
 
