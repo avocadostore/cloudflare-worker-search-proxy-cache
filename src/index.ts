@@ -153,16 +153,11 @@ export default {
 				}
 			}
 
-			const cacheKey = new Request(cacheKeyUrl, {
-				headers: cacheHeaders,
-				method: "GET",
-			});
-
 			console.log(
 				JSON.stringify({
 					message: "Cache key request details",
 					url: cacheKeyUrl,
-					method: cacheKey.method,
+					method: "GET",
 					headersCount: Array.from(cacheHeaders.keys()).length,
 				})
 			);
@@ -238,10 +233,6 @@ export default {
 						storeCacheHeaders.set(key, value);
 					}
 				}
-				const storeCacheKey = new Request(cacheKeyUrl, {
-					headers: storeCacheHeaders,
-					method: "GET",
-				});
 				ctx.waitUntil(cache.put(cacheKeyUrl, cachedResponse));
 			}
 		}
