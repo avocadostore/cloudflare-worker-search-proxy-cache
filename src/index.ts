@@ -134,7 +134,10 @@ export default {
 				headers: request.headers,
 				method: "GET",
 			});
+			console.log(JSON.stringify({ request: cacheRequest }));
 			const cachedResponse = await cache.match(cacheRequest);
+			console.log(JSON.stringify({ response: cachedResponse }));
+
 			if (cachedResponse) {
 				console.log(JSON.stringify({
 					message: "Cache hit",
