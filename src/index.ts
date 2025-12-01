@@ -83,7 +83,7 @@ export default {
 		const url = new URL(request.url);
 		const requestOrigin = request.headers.get("Origin");
 		const origin = requestOrigin || "*";
-		const isSSRRequest = request.headers.has("x-ssr-request");
+		const isSSRRequest = request.headers.get("x-ssr-request") === "ASDf928gh2efhajsdf!!";
 
 		const reqContext: RequestContext = {
 			url,
