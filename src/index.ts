@@ -140,6 +140,7 @@ export default {
 					status: cachedResponse.status,
 					cacheControl: cachedResponse.headers.get("Cache-Control")
 				}));
+				console.log(JSON.stringify(cachedResponse));
 				response = cachedResponse;
 				isCacheHit = true;
 			} else {
@@ -301,6 +302,7 @@ async function tryAlgoliaHosts(
 	bodyStr?: string,
 	hosts?: readonly string[]
 ): Promise<Response> {
+	let counter = 1;
 	for (const host of hosts || []) {
 		try {
 			const url = "https://" + host + pathname + search;
@@ -311,7 +313,7 @@ async function tryAlgoliaHosts(
 			});
 
 			console.log(JSON.stringify({
-				message: "Algolia host attempt " + host,
+				message: "Algolia host attempt " + host + " counter:" + counter++,
 				host,
 				status: response.status,
 				ok: response.ok,
