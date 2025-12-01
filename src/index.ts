@@ -117,9 +117,8 @@ export default {
 
 		if (request.method === "POST" && cacheKeyParam) {
 			const cacheUrl = new URL(url.toString());
-			if (!cacheUrl.searchParams.has("cacheKey")) {
-				cacheUrl.searchParams.set("cacheKey", cacheKeyParam);
-			}
+			cacheUrl.searchParams.set("cacheKey", cacheKeyParam);
+
 			// Add SSR indicator to cache key to separate SSR and client-side cache entries
 			cacheUrl.searchParams.set("ssr", isSSRRequest ? "1" : "0");
 			cacheKeyUrl = cacheUrl.toString();
@@ -131,7 +130,10 @@ export default {
 			}));
 
 			// Create a GET request for cache lookup (POST requests are not cached by default)
-			const cacheRequest = new Request(cacheKeyUrl);
+			const cacheRequest = new Request(cacheKeyUrl, {
+				headers: request.headers,
+				method: "GET",
+			});
 			const cachedResponse = await cache.match(cacheRequest);
 			if (cachedResponse) {
 				console.log(JSON.stringify({
