@@ -166,7 +166,7 @@ export default {
 					headersCount: Array.from(cacheHeaders.keys()).length,
 				})
 			);
-			const cachedResponse = await cache.match(cacheKey);
+			const cachedResponse = await cache.match(cacheKeyUrl);
 			console.log(
 				JSON.stringify({
 					message: "response json",
@@ -242,7 +242,7 @@ export default {
 					headers: storeCacheHeaders,
 					method: "GET",
 				});
-				ctx.waitUntil(cache.put(storeCacheKey, cachedResponse));
+				ctx.waitUntil(cache.put(cacheKeyUrl, cachedResponse));
 			}
 		}
 

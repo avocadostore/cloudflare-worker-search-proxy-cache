@@ -35,7 +35,7 @@
 			},
 			"routes": [
 				{
-					"pattern": "search-production.avocadostore.de/*",
+					"pattern": "search.avocadostore.de/*",
 					"zone_name": "avocadostore.de"
 				}
 			],
