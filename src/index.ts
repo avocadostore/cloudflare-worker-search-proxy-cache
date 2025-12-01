@@ -82,7 +82,7 @@ export default {
 		const startTime = Date.now();
 		const url = new URL(request.url);
 		const requestOrigin = request.headers.get("Origin");
-		const origin = requestOrigin || "";
+		const origin = requestOrigin || "*";
 		const isSSRRequest = request.headers.has("x-ssr-request");
 
 		const reqContext: RequestContext = {
