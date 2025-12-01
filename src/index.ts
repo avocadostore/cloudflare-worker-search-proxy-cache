@@ -1,4 +1,3 @@
-import { env } from "cloudflare:workers";
 
 interface Env {
 	ALGOLIA_APPLICATION_ID: string;
@@ -130,13 +129,28 @@ export default {
 			}));
 
 			// Create a GET request for cache lookup (POST requests are not cached by default)
-			const cacheRequest = new Request(cacheKeyUrl, {
-				headers: request.headers,
+			// Filter out body-related headers that would conflict with GET method
+			const cacheHeaders = new Headers();
+			for (const [key, value] of request.headers.entries()) {
+				const lowerKey = key.toLowerCase();
+				if (lowerKey !== 'content-type' && lowerKey !== 'content-length' && lowerKey !== 'transfer-encoding') {
+					cacheHeaders.set(key, value);
+				}
+			}
+
+			const cacheKey = new Request(cacheKeyUrl, {
+				headers: cacheHeaders,
 				method: "GET",
 			});
-			console.log(JSON.stringify({ request: cacheRequest }));
-			const cachedResponse = await cache.match(cacheRequest);
-			console.log(JSON.stringify({ response: cachedResponse }));
+
+			console.log(JSON.stringify({
+				message: "Cache key request details",
+				url: cacheKeyUrl,
+				method: cacheKey.method,
+				headersCount: Array.from(cacheHeaders.keys()).length
+			}));
+			const cachedResponse = await cache.match(cacheKey);
+			console.log(JSON.stringify({ message: "response json", response: cachedResponse }));
 
 			if (cachedResponse) {
 				console.log(JSON.stringify({
@@ -182,8 +196,19 @@ export default {
 					responseStatus: response.status
 				}));
 
-				// Store using Request object as the cache key
-				ctx.waitUntil(cache.put(new Request(cacheKeyUrl), cachedResponse));
+				// Store using GET Request object as the cache key (must match the lookup request)
+				const storeCacheHeaders = new Headers();
+				for (const [key, value] of request.headers.entries()) {
+					const lowerKey = key.toLowerCase();
+					if (lowerKey !== 'content-type' && lowerKey !== 'content-length' && lowerKey !== 'transfer-encoding') {
+						storeCacheHeaders.set(key, value);
+					}
+				}
+				const storeCacheKey = new Request(cacheKeyUrl, {
+					headers: storeCacheHeaders,
+					method: "GET",
+				});
+				ctx.waitUntil(cache.put(storeCacheKey, cachedResponse));
 			}
 		}
 
