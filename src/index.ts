@@ -120,6 +120,8 @@ export default {
 			if (!cacheUrl.searchParams.has("cacheKey")) {
 				cacheUrl.searchParams.set("cacheKey", cacheKeyParam);
 			}
+			// Add SSR indicator to cache key to separate SSR and client-side cache entries
+			cacheUrl.searchParams.set("ssr", isSSRRequest ? "1" : "0");
 			cacheKeyUrl = cacheUrl.toString();
 
 			console.log(JSON.stringify({
