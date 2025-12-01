@@ -106,9 +106,12 @@ export default {
 		}
 
 		// Caching Logic
+		// Note: Cloudflare Cache API caches responses based on the full request URL.
+		// For POST requests, we create a synthetic GET request with a cache key parameter.
+		// Reference: https://developers.cloudflare.com/workers/runtime-apis/cache/
 		const cache = caches.default;
 		const cacheKeyParam = reqContext.searchParams.get("cacheKey") || request.headers.get("X-AS-Cache-Key");
-		let cacheKeyRequest: Request | undefined;
+		let cacheKeyUrl: string | undefined;
 		let response: Response | undefined;
 		let isCacheHit = false;
 
@@ -117,23 +120,37 @@ export default {
 			if (!cacheUrl.searchParams.has("cacheKey")) {
 				cacheUrl.searchParams.set("cacheKey", cacheKeyParam);
 			}
-			console.log(`Looking for cache entry with key: ${cacheUrl.toString()}`);
-			console.log(request.headers);
-			cacheKeyRequest = new Request(cacheUrl.toString(), {
-				method: "GET",
-				headers: request.headers
-			});
-			const cachedResponse = await cache.match(cacheKeyRequest);
+			cacheKeyUrl = cacheUrl.toString();
+
+			console.log(JSON.stringify({
+				message: "Cache lookup",
+				cacheKey: cacheKeyUrl,
+				isSSR: isSSRRequest
+			}));
+
+			// Use URL-only cache key (no headers) as Cloudflare Cache API matches by URL
+			const cachedResponse = await cache.match(cacheKeyUrl);
 			if (cachedResponse) {
+				console.log(JSON.stringify({
+					message: "Cache hit",
+					cacheKey: cacheKeyUrl,
+					status: cachedResponse.status,
+					cacheControl: cachedResponse.headers.get("Cache-Control")
+				}));
 				response = cachedResponse;
 				isCacheHit = true;
+			} else {
+				console.log(JSON.stringify({
+					message: "Cache miss",
+					cacheKey: cacheKeyUrl
+				}));
 			}
 		}
 
 		if (!response) {
 			response = await fetchFromAlgolia(reqContext, request.headers, bodyStr, env);
 
-			if (cacheKeyRequest && response.ok) {
+			if (cacheKeyUrl && response.ok) {
 				const responseToCache = response.clone();
 				const headers = new Headers(responseToCache.headers);
 
@@ -149,7 +166,15 @@ export default {
 					headers: headers
 				});
 
-				ctx.waitUntil(cache.put(cacheKeyRequest, cachedResponse));
+				console.log(JSON.stringify({
+					message: "Cache store",
+					cacheKey: cacheKeyUrl,
+					cacheTtl: cacheTtl,
+					responseStatus: response.status
+				}));
+
+				// Store using URL string as the cache key
+				ctx.waitUntil(cache.put(cacheKeyUrl, cachedResponse));
 			}
 		}
 
@@ -187,12 +212,14 @@ function handleOptions(ctx: RequestContext): Response {
 }
 
 async function fetchFromAlgolia(ctx: RequestContext, originalHeaders: Headers, bodyStr?: string, env?: Env): Promise<Response> {
-	const { searchParams, pathname } = ctx;
-	searchParams.set("x-algolia-api-key", env?.ALGOLIA_API_KEY || "");
-	searchParams.set("x-algolia-application-id", env?.ALGOLIA_APPLICATION_ID || "");
-	searchParams.set("x-algolia-agent", AGENT);
+	const { pathname } = ctx;
+	// Create a copy of searchParams to avoid mutating the original URL
+	const algoliaParams = new URLSearchParams(ctx.searchParams.toString());
+	algoliaParams.set("x-algolia-api-key", env?.ALGOLIA_API_KEY || "");
+	algoliaParams.set("x-algolia-application-id", env?.ALGOLIA_APPLICATION_ID || "");
+	algoliaParams.set("x-algolia-agent", AGENT);
 
-	const search = "?" + searchParams.toString();
+	const search = "?" + algoliaParams.toString();
 	const headers: Record<string, string> = {};
 	for (const [key, value] of originalHeaders.entries()) {
 		headers[key] = value;

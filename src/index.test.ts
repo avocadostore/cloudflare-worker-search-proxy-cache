@@ -283,9 +283,9 @@ describe('Worker Logic', () => {
       body: JSON.stringify(body1),
     }), env, ctx);
 
-    // Verify what was put in cache
+    // Verify what was put in cache - now uses URL string as cache key
     expect(cachePut).toHaveBeenCalledTimes(1);
-    const cacheRequest1 = cachePut.mock.calls[0][0] as Request;
+    const cacheUrl1 = cachePut.mock.calls[0][0] as string;
 
     // 2. Request with Key 2
     cacheMatch.mockResolvedValueOnce(undefined); // Cache miss
@@ -302,11 +302,11 @@ describe('Worker Logic', () => {
     }), env, ctx);
 
     expect(cachePut).toHaveBeenCalledTimes(2);
-    const cacheRequest2 = cachePut.mock.calls[1][0] as Request;
+    const cacheUrl2 = cachePut.mock.calls[1][0] as string;
 
     // The URLs used for caching MUST be different for the cache to treat them differently
-    expect(cacheRequest1.url).not.toBe(cacheRequest2.url);
-    expect(cacheRequest1.url).toContain('key-1');
-    expect(cacheRequest2.url).toContain('key-2');
+    expect(cacheUrl1).not.toBe(cacheUrl2);
+    expect(cacheUrl1).toContain('key-1');
+    expect(cacheUrl2).toContain('key-2');
   });
 });
