@@ -28,6 +28,9 @@ globalThis.caches = {
 
 describe("Worker Logic", () => {
   beforeEach(() => {
+    env.ALGOLIA_API_KEY = "testtest";
+    env.ALGOLIA_APPLICATION_ID = "testtest";
+
     vi.clearAllMocks();
     // Reset fetch mock
     globalThis.fetch = vi
@@ -102,11 +105,10 @@ describe("Worker Logic", () => {
     );
     expect(fetchCall).toBeDefined();
     const fetchUrl = new URL(fetchCall[0]);
-    expect(fetchUrl.searchParams.get("x-algolia-api-key")).toBe(
-      env.ALGOLIA_API_KEY
-    );
+    // The env values are empty strings in the test environment
+    expect(fetchUrl.searchParams.get("x-algolia-api-key")).toBe("testtest");
     expect(fetchUrl.searchParams.get("x-algolia-application-id")).toBe(
-      env.ALGOLIA_APPLICATION_ID
+      "testtest"
     );
   });
 
@@ -236,6 +238,7 @@ describe("Worker Logic", () => {
       headers: {
         "Content-Type": "application/json",
         Origin: "https://www.avocadostore.de",
+        "x-ssr-request": "ASDf928gh2efhajsdf!!",
       },
       body: JSON.stringify(validSearchBody),
     };
@@ -284,6 +287,7 @@ describe("Worker Logic", () => {
           "Content-Type": "application/json",
           Origin: "https://www.avocadostore.de",
           "X-AS-Cache-Key": "key-1",
+          "x-ssr-request": "ASDf928gh2efhajsdf!!",
         },
         body: JSON.stringify(body1),
       }),
@@ -291,9 +295,9 @@ describe("Worker Logic", () => {
       ctx
     );
 
-    // Verify what was put in cache - uses Request object as cache key
+    // Verify what was put in cache - uses URL string as cache key
     expect(cachePut).toHaveBeenCalledTimes(1);
-    const cacheRequest1 = cachePut.mock.calls[0][0] as Request;
+    const cacheUrl1 = cachePut.mock.calls[0][0] as string;
 
     // 2. Request with Key 2
     cacheMatch.mockResolvedValueOnce(undefined); // Cache miss
@@ -310,6 +314,7 @@ describe("Worker Logic", () => {
           "Content-Type": "application/json",
           Origin: "https://www.avocadostore.de",
           "X-AS-Cache-Key": "key-2",
+          "x-ssr-request": "ASDf928gh2efhajsdf!!",
         },
         body: JSON.stringify(body2),
       }),
@@ -318,11 +323,11 @@ describe("Worker Logic", () => {
     );
 
     expect(cachePut).toHaveBeenCalledTimes(2);
-    const cacheRequest2 = cachePut.mock.calls[1][0] as Request;
+    const cacheUrl2 = cachePut.mock.calls[1][0] as string;
 
     // The URLs used for caching MUST be different for the cache to treat them differently
-    expect(cacheRequest1.url).not.toBe(cacheRequest2.url);
-    expect(cacheRequest1.url).toContain("key-1");
-    expect(cacheRequest2.url).toContain("key-2");
+    expect(cacheUrl1).not.toBe(cacheUrl2);
+    expect(cacheUrl1).toContain("key-1");
+    expect(cacheUrl2).toContain("key-2");
   });
 });
