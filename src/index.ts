@@ -26,7 +26,7 @@ type ParseResult = {
 
 type LogEntry = {
 	message: string;
-	status: string;
+	status: string | number;
 	[key: string]: unknown;
 };
 
@@ -267,8 +267,7 @@ async function fetchFromAlgolia(
 		algoliaParams.set("x-algolia-agent", INSIGHTS_AGENT);
 
 		const insightsUrl = `https://insights.algolia.io/1/events?${algoliaParams.toString()}`;
-		console.log({
-			message: "Forwarding to Algolia Insights endpoint",
+		logEvent("log", "Forwarding to Algolia Insights endpoint", {
 			url: insightsUrl,
 			is_ssr_request: isSSRRequest,
 			user_agent: userAgent,
@@ -371,7 +370,7 @@ async function tryAlgoliaHosts(
 				body: bodyStr,
 			});
 
-			const logData: Record<string, unknown> = {
+			const logData: LogEntry = {
 				message: "Algolia host attempt " + host,
 				host: host,
 				status: response.status,
@@ -392,13 +391,13 @@ async function tryAlgoliaHosts(
 				}
 			}
 
-			console.log(logData);
+			await logEvent("log", logData.message, logData);
 
 			if (response.ok) {
 				return response;
 			}
 		} catch (e) {
-			console.error({
+			await logEvent("error", "Algolia host error", {
 				message: "Algolia host error",
 				host,
 				error: String(e),
@@ -487,7 +486,7 @@ async function logRequest(
 		logContext.request_body = bodyStr;
 	}
 	await logEvent(
-		response.ok ? "info" : "error",
+		response.ok ? "log" : "error",
 		"Algolia proxy request to " +
 			ctx.pathname +
 			(response.ok ? " succeeded" : " failed"),
@@ -495,8 +494,9 @@ async function logRequest(
 	);
 }
 
+// this is only async because ctx.waitUntil expects a Promise :(
 async function logEvent(
-	level: "info" | "error" | "warn",
+	level: "log" | "error" | "warn",
 	message: string,
 	context: Record<string, unknown> = {}
 ): Promise<void> {
@@ -523,4 +523,5 @@ async function logEvent(
 	} catch (error) {
 		console.error("Failed to log event:", error);
 	}
+	return Promise.resolve();
 }
