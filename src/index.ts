@@ -45,7 +45,8 @@ type RequestContext = {
 
 const SEARCH_AGENT =
 	"Algolia%20for%20JavaScript%20(5.8.1)%3B%20Lite%20(5.8.1)%3B%20Browser%3B%20autocomplete-core%20(1.17.4)%3B%20autocomplete-js%20(1.17.4)" as const;
-const INSIGHTS_AGENT = "insights-js%20(2.17.3)%3B%20insights-js-browser-umd%20(2.17.3)%3B%20insights-middleware%3B%20insights-plugin" as const;
+const INSIGHTS_AGENT =
+	"insights-js%20(2.17.3)%3B%20insights-js-browser-umd%20(2.17.3)%3B%20insights-middleware%3B%20insights-plugin" as const;
 const getHosts = (applicationId: string): readonly string[] => [
 	applicationId + "-dsn.algolia.net",
 	applicationId + "-1.algolianet.com",
@@ -110,7 +111,8 @@ export default {
 						method: request.method,
 						error: "Invalid query parameter or malformed JSON",
 						is_ssr_request: isSSRRequest,
-						user_agent: request.headers.get("User-Agent") || "unknown",
+						user_agent:
+							request.headers.get("User-Agent") || "unknown",
 					})
 				);
 				return result.error;
@@ -139,8 +141,6 @@ export default {
 			cacheUrl.searchParams.set("ssr", isSSRRequest ? "1" : "0");
 			cacheKeyUrl = cacheUrl.toString();
 
-
-
 			// Create a GET request for cache lookup (POST requests are not cached by default)
 			// Filter out body-related headers that would conflict with GET method
 			const cacheHeaders = new Headers();
@@ -153,9 +153,7 @@ export default {
 
 			const cachedResponse = await cache.match(cacheKeyUrl);
 
-
 			if (cachedResponse) {
-
 				response = cachedResponse;
 				isCacheHit = true;
 			} else {
@@ -187,7 +185,6 @@ export default {
 					statusText: responseToCache.statusText,
 					headers: headers,
 				});
-
 
 				// Store using GET Request object as the cache key (must match the lookup request)
 				const storeCacheHeaders = new Headers();
@@ -287,8 +284,7 @@ async function fetchFromAlgolia(
 				status: 502,
 			});
 		}
-	}
-	else {
+	} else {
 		algoliaParams.set("x-algolia-agent", SEARCH_AGENT);
 	}
 
@@ -376,8 +372,7 @@ async function tryAlgoliaHosts(
 			});
 
 			const logData: Record<string, unknown> = {
-				message:
-					"Algolia host attempt " + host,
+				message: "Algolia host attempt " + host,
 				host: host,
 				status: response.status,
 				ok: response.ok,
@@ -403,15 +398,13 @@ async function tryAlgoliaHosts(
 				return response;
 			}
 		} catch (e) {
-			console.error(
-				{
-					message: "Algolia host error",
-					host,
-					error: String(e),
-					is_ssr_request: isSSRRequest,
-					user_agent: userAgent,
-				}
-			);
+			console.error({
+				message: "Algolia host error",
+				host,
+				error: String(e),
+				is_ssr_request: isSSRRequest,
+				user_agent: userAgent,
+			});
 			// Network error, continue to next host
 		}
 	}
@@ -496,8 +489,8 @@ async function logRequest(
 	await logEvent(
 		response.ok ? "info" : "error",
 		"Algolia proxy request to " +
-		ctx.pathname +
-		(response.ok ? " succeeded" : " failed"),
+			ctx.pathname +
+			(response.ok ? " succeeded" : " failed"),
 		logContext
 	);
 }
