@@ -26,22 +26,25 @@
 			],
 			"vars": {
 				"CACHE_TTL_SSR": "300",
-				"CACHE_TTL_CLIENT": "300"
+				"CACHE_TTL_CLIENT": "0"
 			},
 		},
 		"production": {
 			"observability": {
-				"enabled": true
+				"enabled": true,
+				"traces": {
+					"enabled": true,
+				}
 			},
 			"routes": [
 				{
-					"pattern": "search-production.avocadostore.de/*",
+					"pattern": "search.avocadostore.de/*",
 					"zone_name": "avocadostore.de"
 				}
 			],
 			"vars": {
 				"CACHE_TTL_SSR": "600",
-				"CACHE_TTL_CLIENT": "600"
+				"CACHE_TTL_CLIENT": "0"
 			},
 		}
 	},

@@ -1,52 +1,51 @@
-
-interface Env {
+type Env = {
 	ALGOLIA_APPLICATION_ID: string;
 	ALGOLIA_API_KEY: string;
 	CACHE_TTL_SSR?: string;
 	CACHE_TTL_CLIENT?: string;
-}
+};
 
 // ============================================================================
 // TYPES & INTERFACES
 // ============================================================================
 
-interface SearchRequest {
+type SearchRequest = {
 	query?: string;
 	[key: string]: unknown;
-}
+};
 
-interface IncomingBody {
+type IncomingBody = {
 	requests?: SearchRequest[];
 	[key: string]: unknown;
-}
+};
 
-interface ParseResult {
+type ParseResult = {
 	body?: IncomingBody;
 	error?: Response;
-}
+};
 
-interface LogEntry {
+type LogEntry = {
 	message: string;
 	status: string;
 	[key: string]: unknown;
-}
+};
 
-interface RequestContext {
+type RequestContext = {
 	url: URL;
 	origin: string;
 	isSSRRequest: boolean;
 	method: string;
 	pathname: string;
 	searchParams: URLSearchParams;
-}
+};
 
 // ============================================================================
 // CONFIGURATION & CONSTANTS
 // ============================================================================
 
-const AGENT =
+const SEARCH_AGENT =
 	"Algolia%20for%20JavaScript%20(5.8.1)%3B%20Lite%20(5.8.1)%3B%20Browser%3B%20autocomplete-core%20(1.17.4)%3B%20autocomplete-js%20(1.17.4)" as const;
-
+const INSIGHTS_AGENT = "insights-js%20(2.17.3)%3B%20insights-js-browser-umd%20(2.17.3)%3B%20insights-middleware%3B%20insights-plugin" as const;
 const getHosts = (applicationId: string): readonly string[] => [
 	applicationId + "-dsn.algolia.net",
 	applicationId + "-1.algolianet.com",
@@ -59,22 +58,33 @@ const SERVICE_NAME = "algolia-proxy" as const;
 const ALLOWED_QUERY_REGEX =
 	/^[\x20-\x7E\xA0-\xFF★•‚''„"""'›‹–…‒√°¬♥ᵘᵖⓇ™&⎥€∴ː∅ÆæĀāČčǝĒēЁёęłıÏïîÑñŌō⌀ŠšẞßŪū]+$/;
 
-const ALLOWED_ORIGIN_PATTERN = /^https:\/\/([a-z0-9-]+\.)*avocadostore\.(de|dev)$/;
+const ALLOWED_ORIGIN_PATTERN =
+	/^https:\/\/([a-z0-9-]+\.)*avocadostore\.(de|dev)$/;
 const LOCALHOST_PATTERN = /^http:\/\/localhost(:\d+)?$/;
 const ENVIRONMENT = "production";
 const CLOUDFLARE_DASHBOARD = "https://dash.cloudflare.com";
+const BLACKLIST_HEADERS_FOR_GET = [
+	"content-type",
+	"content-length",
+	"transfer-encoding",
+];
 
 // ============================================================================
 // MAIN HANDLER
 // ============================================================================
 
 export default {
-	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+	async fetch(
+		request: Request,
+		env: Env,
+		ctx: ExecutionContext
+	): Promise<Response> {
 		const startTime = Date.now();
 		const url = new URL(request.url);
 		const requestOrigin = request.headers.get("Origin");
-		const origin = requestOrigin || "";
-		const isSSRRequest = request.headers.has("x-ssr-request");
+		const origin = requestOrigin || "*";
+		const ssrHeaderValue = request.headers.get("x-ssr-request");
+		const isSSRRequest = ssrHeaderValue === "ASDf928gh2efhajsdf!!";
 
 		const reqContext: RequestContext = {
 			url,
@@ -82,7 +92,7 @@ export default {
 			isSSRRequest,
 			method: request.method,
 			pathname: url.pathname,
-			searchParams: url.searchParams
+			searchParams: url.searchParams,
 		};
 
 		if (request.method === "OPTIONS") {
@@ -93,12 +103,16 @@ export default {
 		if (request.method === "POST") {
 			const result = await parseRequestBody(request);
 			if (result.error) {
-				ctx.waitUntil(logEvent("error", "Request validation failed", {
-					origin,
-					url: request.url,
-					method: request.method,
-					error: "Invalid query parameter or malformed JSON",
-				}));
+				ctx.waitUntil(
+					logEvent("error", "Request validation failed", {
+						origin,
+						url: request.url,
+						method: request.method,
+						error: "Invalid query parameter or malformed JSON",
+						is_ssr_request: isSSRRequest,
+						user_agent: request.headers.get("User-Agent") || "unknown",
+					})
+				);
 				return result.error;
 			}
 			bodyStr = JSON.stringify(result.body);
@@ -107,14 +121,17 @@ export default {
 		// Caching Logic
 		// Note: Cloudflare Cache API caches responses based on the full request URL.
 		// For POST requests, we create a synthetic GET request with a cache key parameter.
+		// Only cache SSR requests to avoid caching client-side requests.
 		// Reference: https://developers.cloudflare.com/workers/runtime-apis/cache/
 		const cache = caches.default;
-		const cacheKeyParam = reqContext.searchParams.get("cacheKey") || request.headers.get("X-AS-Cache-Key");
+		const cacheKeyParam =
+			reqContext.searchParams.get("cacheKey") ||
+			request.headers.get("X-AS-Cache-Key");
 		let cacheKeyUrl: string | undefined;
 		let response: Response | undefined;
 		let isCacheHit = false;
 
-		if (request.method === "POST" && cacheKeyParam) {
+		if (request.method === "POST" && cacheKeyParam && isSSRRequest) {
 			const cacheUrl = new URL(url.toString());
 			cacheUrl.searchParams.set("cacheKey", cacheKeyParam);
 
@@ -122,98 +139,79 @@ export default {
 			cacheUrl.searchParams.set("ssr", isSSRRequest ? "1" : "0");
 			cacheKeyUrl = cacheUrl.toString();
 
-			console.log(JSON.stringify({
-				message: "Cache lookup",
-				cacheKey: cacheKeyUrl,
-				isSSR: isSSRRequest
-			}));
+
 
 			// Create a GET request for cache lookup (POST requests are not cached by default)
 			// Filter out body-related headers that would conflict with GET method
 			const cacheHeaders = new Headers();
 			for (const [key, value] of request.headers.entries()) {
 				const lowerKey = key.toLowerCase();
-				if (lowerKey !== 'content-type' && lowerKey !== 'content-length' && lowerKey !== 'transfer-encoding') {
+				if (!BLACKLIST_HEADERS_FOR_GET.includes(lowerKey)) {
 					cacheHeaders.set(key, value);
 				}
 			}
 
-			const cacheKey = new Request(cacheKeyUrl, {
-				headers: cacheHeaders,
-				method: "GET",
-			});
+			const cachedResponse = await cache.match(cacheKeyUrl);
 
-			console.log(JSON.stringify({
-				message: "Cache key request details",
-				url: cacheKeyUrl,
-				method: cacheKey.method,
-				headersCount: Array.from(cacheHeaders.keys()).length
-			}));
-			const cachedResponse = await cache.match(cacheKey);
-			console.log(JSON.stringify({ message: "response json", response: cachedResponse }));
 
 			if (cachedResponse) {
-				console.log(JSON.stringify({
-					message: "Cache hit",
-					cacheKey: cacheKeyUrl,
-					status: cachedResponse.status,
-					cacheControl: cachedResponse.headers.get("Cache-Control")
-				}));
-				console.log(JSON.stringify(cachedResponse));
+
 				response = cachedResponse;
 				isCacheHit = true;
 			} else {
-				console.log(JSON.stringify({
-					message: "Cache miss",
-					cacheKey: cacheKeyUrl
-				}));
+				isCacheHit = false;
 			}
 		}
 
 		if (!response) {
-			response = await fetchFromAlgolia(reqContext, request.headers, bodyStr, env);
+			response = await fetchFromAlgolia(
+				reqContext,
+				request.headers,
+				bodyStr,
+				env,
+				isSSRRequest
+			);
 
-			if (cacheKeyUrl && response.ok) {
+			if (cacheKeyUrl && response.ok && isSSRRequest) {
 				const responseToCache = response.clone();
 				const headers = new Headers(responseToCache.headers);
 
 				const cacheTtl = isSSRRequest
-					? (parseInt(env.CACHE_TTL_SSR || "600", 10) || 600)
-					: (parseInt(env.CACHE_TTL_CLIENT || "600", 10) || 600);
+					? parseInt(env.CACHE_TTL_SSR || "600", 10) || 600
+					: parseInt(env.CACHE_TTL_CLIENT || "0", 10) || 0;
 
 				headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
 
 				const cachedResponse = new Response(responseToCache.body, {
 					status: responseToCache.status,
 					statusText: responseToCache.statusText,
-					headers: headers
+					headers: headers,
 				});
 
-				console.log(JSON.stringify({
-					message: "Cache store",
-					cacheKey: cacheKeyUrl,
-					cacheTtl: cacheTtl,
-					responseStatus: response.status
-				}));
 
 				// Store using GET Request object as the cache key (must match the lookup request)
 				const storeCacheHeaders = new Headers();
 				for (const [key, value] of request.headers.entries()) {
 					const lowerKey = key.toLowerCase();
-					if (lowerKey !== 'content-type' && lowerKey !== 'content-length' && lowerKey !== 'transfer-encoding') {
+					if (!BLACKLIST_HEADERS_FOR_GET.includes(lowerKey)) {
 						storeCacheHeaders.set(key, value);
 					}
 				}
-				const storeCacheKey = new Request(cacheKeyUrl, {
-					headers: storeCacheHeaders,
-					method: "GET",
-				});
-				ctx.waitUntil(cache.put(storeCacheKey, cachedResponse));
+				ctx.waitUntil(cache.put(cacheKeyUrl, cachedResponse));
 			}
 		}
 
 		const duration = Date.now() - startTime;
-		ctx.waitUntil(logRequest(reqContext, request.headers, response, duration, isCacheHit, bodyStr));
+		ctx.waitUntil(
+			logRequest(
+				reqContext,
+				request.headers,
+				response,
+				duration,
+				isCacheHit,
+				bodyStr
+			)
+		);
 
 		return addCorsHeaders(response, origin, isSSRRequest);
 	},
@@ -226,7 +224,8 @@ export default {
 function handleOptions(ctx: RequestContext): Response {
 	const headers: Record<string, string> = {
 		"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-		"Access-Control-Allow-Headers": "Content-Type, x-algolia-agent, x-algolia-api-key, x-algolia-application-id, x-as-cache-key, x-ssr-request",
+		"Access-Control-Allow-Headers":
+			"Content-Type, x-algolia-agent, x-algolia-api-key, x-algolia-application-id, x-as-cache-key, x-ssr-request",
 		"Access-Control-Max-Age": "86400",
 	};
 
@@ -245,22 +244,38 @@ function handleOptions(ctx: RequestContext): Response {
 	});
 }
 
-async function fetchFromAlgolia(ctx: RequestContext, originalHeaders: Headers, bodyStr?: string, env?: Env): Promise<Response> {
+async function fetchFromAlgolia(
+	ctx: RequestContext,
+	originalHeaders: Headers,
+	bodyStr?: string,
+	env?: Env,
+	isSSRRequest?: boolean
+): Promise<Response> {
 	const { pathname } = ctx;
+	const userAgent = originalHeaders.get("User-Agent") || "unknown";
 	// Create a copy of searchParams to avoid mutating the original URL
 	const algoliaParams = new URLSearchParams(ctx.searchParams.toString());
 	algoliaParams.set("x-algolia-api-key", env?.ALGOLIA_API_KEY || "");
-	algoliaParams.set("x-algolia-application-id", env?.ALGOLIA_APPLICATION_ID || "");
-	algoliaParams.set("x-algolia-agent", AGENT);
+	algoliaParams.set(
+		"x-algolia-application-id",
+		env?.ALGOLIA_APPLICATION_ID || ""
+	);
 
-	const search = "?" + algoliaParams.toString();
 	const headers: Record<string, string> = {};
 	for (const [key, value] of originalHeaders.entries()) {
 		headers[key] = value;
 	}
 
 	if (pathname === "/1/events") {
-		const insightsUrl = "https://insights.algolia.io/1/events" + search;
+		algoliaParams.set("x-algolia-agent", INSIGHTS_AGENT);
+
+		const insightsUrl = `https://insights.algolia.io/1/events?${algoliaParams.toString()}`;
+		console.log({
+			message: "Forwarding to Algolia Insights endpoint",
+			url: insightsUrl,
+			is_ssr_request: isSSRRequest,
+			user_agent: userAgent,
+		});
 		try {
 			return await fetch(insightsUrl, {
 				method: ctx.method,
@@ -268,12 +283,28 @@ async function fetchFromAlgolia(ctx: RequestContext, originalHeaders: Headers, b
 				body: bodyStr,
 			});
 		} catch {
-			return new Response("Failed to reach Algolia Insights endpoint", { status: 502 });
+			return new Response("Failed to reach Algolia Insights endpoint", {
+				status: 502,
+			});
 		}
 	}
+	else {
+		algoliaParams.set("x-algolia-agent", SEARCH_AGENT);
+	}
+
+	const search = `?${algoliaParams.toString()}`;
 
 	const hosts = getHosts(env?.ALGOLIA_APPLICATION_ID || "");
-	return await tryAlgoliaHosts(pathname, search, ctx.method, headers, bodyStr, hosts);
+	return await tryAlgoliaHosts(
+		pathname,
+		search,
+		ctx.method,
+		headers,
+		bodyStr,
+		hosts,
+		isSSRRequest,
+		userAgent
+	);
 }
 
 function isInvalidQuery(requests: SearchRequest[]): boolean {
@@ -330,7 +361,9 @@ async function tryAlgoliaHosts(
 	method: string,
 	headers: Record<string, string>,
 	bodyStr?: string,
-	hosts?: readonly string[]
+	hosts?: readonly string[],
+	isSSRRequest?: boolean,
+	userAgent?: string
 ): Promise<Response> {
 	let counter = 1;
 	for (const host of hosts || []) {
@@ -342,23 +375,43 @@ async function tryAlgoliaHosts(
 				body: bodyStr,
 			});
 
-			console.log(JSON.stringify({
-				message: "Algolia host attempt " + host + " counter:" + counter++,
-				host,
+			const logData: Record<string, unknown> = {
+				message:
+					"Algolia host attempt " + host,
+				host: host,
 				status: response.status,
 				ok: response.ok,
-				url
-			}));
+				url,
+				is_ssr_request: isSSRRequest,
+				user_agent: userAgent,
+				counter: counter++,
+			};
+
+			// Capture error response body for failed requests
+			if (!response.ok) {
+				try {
+					const errorBody = await response.clone().text();
+					logData.error_response_body = errorBody;
+				} catch (e) {
+					logData.error_body_read_failed = String(e);
+				}
+			}
+
+			console.log(logData);
 
 			if (response.ok) {
 				return response;
 			}
 		} catch (e) {
-			console.error(JSON.stringify({
-				message: "Algolia host error",
-				host,
-				error: String(e)
-			}));
+			console.error(
+				{
+					message: "Algolia host error",
+					host,
+					error: String(e),
+					is_ssr_request: isSSRRequest,
+					user_agent: userAgent,
+				}
+			);
 			// Network error, continue to next host
 		}
 	}
@@ -367,21 +420,35 @@ async function tryAlgoliaHosts(
 }
 
 function isOriginAllowed(origin: string): boolean {
-	return ALLOWED_ORIGIN_PATTERN.test(origin) || LOCALHOST_PATTERN.test(origin) || origin === CLOUDFLARE_DASHBOARD;
+	return (
+		ALLOWED_ORIGIN_PATTERN.test(origin) ||
+		LOCALHOST_PATTERN.test(origin) ||
+		origin === CLOUDFLARE_DASHBOARD
+	);
 }
 
-function addCorsHeaders(response: Response, origin: string | null, isSSRRequest: boolean): Response {
+function addCorsHeaders(
+	response: Response,
+	origin: string | null,
+	isSSRRequest: boolean
+): Response {
 	const headers = new Headers(response.headers);
 
 	if (isSSRRequest || !origin || !isOriginAllowed(origin)) {
-		headers.set("Access-Control-Allow-Origin", "https://www.avocadostore.de");
+		headers.set(
+			"Access-Control-Allow-Origin",
+			"https://www.avocadostore.de"
+		);
 	} else {
 		headers.set("Access-Control-Allow-Origin", origin);
 		headers.set("Vary", "Origin");
 	}
 
 	headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-	headers.set("Access-Control-Allow-Headers", "Content-Type, x-algolia-agent, x-algolia-api-key, x-algolia-application-id, x-as-cache-key, x-ssr-request");
+	headers.set(
+		"Access-Control-Allow-Headers",
+		"Content-Type, x-algolia-agent, x-algolia-api-key, x-algolia-application-id, x-as-cache-key, x-ssr-request"
+	);
 	headers.set("Access-Control-Max-Age", "86400");
 
 	return new Response(response.body, {
@@ -407,7 +474,8 @@ async function logRequest(
 		duration_ms: duration,
 		pathname: ctx.pathname,
 		user_agent: requestHeaders.get("User-Agent") || "unknown",
-		cache_hit: isCacheHit
+		is_ssr_request: ctx.isSSRRequest,
+		cache_hit: isCacheHit,
 	};
 
 	const queryParams: Record<string, string> = {};
@@ -427,7 +495,9 @@ async function logRequest(
 	}
 	await logEvent(
 		response.ok ? "info" : "error",
-		"Algolia proxy request to " + ctx.pathname + (response.ok ? " succeeded" : " failed"),
+		"Algolia proxy request to " +
+		ctx.pathname +
+		(response.ok ? " succeeded" : " failed"),
 		logContext
 	);
 }
@@ -449,10 +519,15 @@ async function logEvent(
 
 		// Log to Cloudflare's logging infrastructure (stdout/stderr)
 		// This will be captured by "wrangler tail" and Cloudflare Workers Logs
-		const consoleMethod = level === "error" ? console.error : level === "warn" ? console.warn : console.log;
-		consoleMethod(JSON.stringify(log));
+		if (level === "error") {
+			// Additionally log to stderr for errors
+			console.error(log);
+		} else if (level === "warn") {
+			console.warn(log);
+		} else {
+			console.log(log);
+		}
 	} catch (error) {
 		console.error("Failed to log event:", error);
 	}
 }
-
