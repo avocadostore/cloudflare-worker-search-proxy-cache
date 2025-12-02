@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { env } from 'cloudflare:test';
-import worker from './index';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { env } from "cloudflare:test";
+import worker from "./index";
 
 // Mock ExecutionContext
 const ctx = {
@@ -26,64 +26,67 @@ globalThis.caches = {
   },
 } as any;
 
-
-describe('Worker Logic', () => {
+describe("Worker Logic", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset fetch mock
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response('{"hits": []}', { status: 200 }));
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(new Response('{"hits": []}', { status: 200 }));
   });
 
-  it('should handle OPTIONS request (CORS)', async () => {
-    const request = new Request('https://example.com/1/indexes/*/queries', {
-      method: 'OPTIONS',
+  it("should handle OPTIONS request (CORS)", async () => {
+    const request = new Request("https://example.com/1/indexes/*/queries", {
+      method: "OPTIONS",
       headers: {
-        Origin: 'https://www.avocadostore.de',
+        Origin: "https://www.avocadostore.de",
       },
     });
 
     const response = await worker.fetch(request, env, ctx);
 
     expect(response.status).toBe(204);
-    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://www.avocadostore.de');
-    expect(response.headers.get('Access-Control-Allow-Methods')).toContain('POST');
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://www.avocadostore.de"
+    );
+    expect(response.headers.get("Access-Control-Allow-Methods")).toContain(
+      "POST"
+    );
   });
 
-  it('should handle valid search request', async () => {
+  it("should handle valid search request", async () => {
     const validSearchBody = {
-      "requests": [
+      requests: [
         {
-          "indexName": "products_de_v1.0.0_query_suggestions",
-          "query": "schok",
-          "hitsPerPage": 9,
-          "highlightPreTag": "__aa-highlight__",
-          "highlightPostTag": "__/aa-highlight__",
-          "clickAnalytics": true,
-          "userToken": "anonymous-a9e343ba-83b7-481b-881e-aaacd2d5d435",
-          "facetFilters": [
+          indexName: "products_de_v1.0.0_query_suggestions",
+          query: "schok",
+          hitsPerPage: 9,
+          highlightPreTag: "__aa-highlight__",
+          highlightPostTag: "__/aa-highlight__",
+          clickAnalytics: true,
+          userToken: "anonymous-a9e343ba-83b7-481b-881e-aaacd2d5d435",
+          facetFilters: [
             "products_de_v1.0.0.facets.exact_matches.categories_level.lvl0.value:-undefined",
-            [
-              "objectID:-schokolade"
-            ]
-          ]
+            ["objectID:-schokolade"],
+          ],
         },
         {
-          "indexName": "products_de_v1.0.0_query_suggestions",
-          "query": "",
-          "hitsPerPage": 8,
-          "highlightPreTag": "__aa-highlight__",
-          "highlightPostTag": "__/aa-highlight__",
-          "clickAnalytics": true,
-          "userToken": "anonymous-a9e343ba-83b7-481b-881e-aaacd2d5d435"
-        }
-      ]
+          indexName: "products_de_v1.0.0_query_suggestions",
+          query: "",
+          hitsPerPage: 8,
+          highlightPreTag: "__aa-highlight__",
+          highlightPostTag: "__/aa-highlight__",
+          clickAnalytics: true,
+          userToken: "anonymous-a9e343ba-83b7-481b-881e-aaacd2d5d435",
+        },
+      ],
     };
 
-    const request = new Request('https://example.com/1/indexes/*/queries', {
-      method: 'POST',
+    const request = new Request("https://example.com/1/indexes/*/queries", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://www.avocadostore.de',
+        "Content-Type": "application/json",
+        Origin: "https://www.avocadostore.de",
       },
       body: JSON.stringify(validSearchBody),
     });
@@ -95,82 +98,71 @@ describe('Worker Logic', () => {
 
     // Verify Algolia headers are set
     const fetchCall = (globalThis.fetch as any).mock.calls.find((call: any) =>
-      call[0].includes('algolia')
+      call[0].includes("algolia")
     );
     expect(fetchCall).toBeDefined();
     const fetchUrl = new URL(fetchCall[0]);
-    expect(fetchUrl.searchParams.get('x-algolia-api-key')).toBe(env.ALGOLIA_API_KEY);
-    expect(fetchUrl.searchParams.get('x-algolia-application-id')).toBe(env.ALGOLIA_APPLICATION_ID);
+    expect(fetchUrl.searchParams.get("x-algolia-api-key")).toBe(
+      env.ALGOLIA_API_KEY
+    );
+    expect(fetchUrl.searchParams.get("x-algolia-application-id")).toBe(
+      env.ALGOLIA_APPLICATION_ID
+    );
   });
 
-  it('should handle valid category page request', async () => {
+  it("should handle valid category page request", async () => {
     const validCategoryBody = {
-      "requests": [
+      requests: [
         {
-          "indexName": "products_de_v1.0.0",
-          "clickAnalytics": true,
-          "facetFilters": [
-            [
-              "categories_level.lvl1:Geschenke > Unter 20 Euro"
-            ]
-          ],
-          "facets": [
-            "*"
-          ],
-          "getRankingInfo": true,
-          "highlightPostTag": "__/ais-highlight__",
-          "highlightPreTag": "__ais-highlight__",
-          "maxValuesPerFacet": 250,
-          "page": 1,
-          "query": "",
-          "userToken": "anonymous-61f60424-64f8-4a47-92cf-f7bbe97368a3"
+          indexName: "products_de_v1.0.0",
+          clickAnalytics: true,
+          facetFilters: [["categories_level.lvl1:Geschenke > Unter 20 Euro"]],
+          facets: ["*"],
+          getRankingInfo: true,
+          highlightPostTag: "__/ais-highlight__",
+          highlightPreTag: "__ais-highlight__",
+          maxValuesPerFacet: 250,
+          page: 1,
+          query: "",
+          userToken: "anonymous-61f60424-64f8-4a47-92cf-f7bbe97368a3",
         },
         {
-          "indexName": "products_de_v1.0.0",
-          "analytics": false,
-          "clickAnalytics": false,
-          "facetFilters": [
-            [
-              "categories_level.lvl0:Geschenke"
-            ]
-          ],
-          "facets": [
-            "categories_level.lvl0",
-            "categories_level.lvl1"
-          ],
-          "getRankingInfo": true,
-          "highlightPostTag": "__/ais-highlight__",
-          "highlightPreTag": "__ais-highlight__",
-          "hitsPerPage": 0,
-          "maxValuesPerFacet": 250,
-          "page": 0,
-          "query": "",
-          "userToken": "anonymous-61f60424-64f8-4a47-92cf-f7bbe97368a3"
+          indexName: "products_de_v1.0.0",
+          analytics: false,
+          clickAnalytics: false,
+          facetFilters: [["categories_level.lvl0:Geschenke"]],
+          facets: ["categories_level.lvl0", "categories_level.lvl1"],
+          getRankingInfo: true,
+          highlightPostTag: "__/ais-highlight__",
+          highlightPreTag: "__ais-highlight__",
+          hitsPerPage: 0,
+          maxValuesPerFacet: 250,
+          page: 0,
+          query: "",
+          userToken: "anonymous-61f60424-64f8-4a47-92cf-f7bbe97368a3",
         },
         {
-          "indexName": "products_de_v1.0.0",
-          "analytics": false,
-          "clickAnalytics": false,
-          "facets": [
-            "categories_level.lvl0"
-          ],
-          "getRankingInfo": true,
-          "highlightPostTag": "__/ais-highlight__",
-          "highlightPreTag": "__ais-highlight__",
-          "hitsPerPage": 0,
-          "maxValuesPerFacet": 250,
-          "page": 0,
-          "query": "",
-          "userToken": "anonymous-61f60424-64f8-4a47-92cf-f7bbe97368a3"
-        }
-      ]
+          indexName: "products_de_v1.0.0",
+          analytics: false,
+          clickAnalytics: false,
+          facets: ["categories_level.lvl0"],
+          getRankingInfo: true,
+          highlightPostTag: "__/ais-highlight__",
+          highlightPreTag: "__ais-highlight__",
+          hitsPerPage: 0,
+          maxValuesPerFacet: 250,
+          page: 0,
+          query: "",
+          userToken: "anonymous-61f60424-64f8-4a47-92cf-f7bbe97368a3",
+        },
+      ],
     };
 
-    const request = new Request('https://example.com/1/indexes/*/queries', {
-      method: 'POST',
+    const request = new Request("https://example.com/1/indexes/*/queries", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://www.avocadostore.de',
+        "Content-Type": "application/json",
+        Origin: "https://www.avocadostore.de",
       },
       body: JSON.stringify(validCategoryBody),
     });
@@ -180,21 +172,21 @@ describe('Worker Logic', () => {
     expect(response.status).toBe(200);
   });
 
-  it('should reject invalid query (too short)', async () => {
+  it("should reject invalid query (too short)", async () => {
     const invalidBody = {
-      "requests": [
+      requests: [
         {
-          "indexName": "test",
-          "query": "ab" // Too short (< 3) and not empty
-        }
-      ]
+          indexName: "test",
+          query: "ab", // Too short (< 3) and not empty
+        },
+      ],
     };
 
-    const request = new Request('https://example.com/1/indexes/*/queries', {
-      method: 'POST',
+    const request = new Request("https://example.com/1/indexes/*/queries", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://www.avocadostore.de',
+        "Content-Type": "application/json",
+        Origin: "https://www.avocadostore.de",
       },
       body: JSON.stringify(invalidBody),
     });
@@ -206,21 +198,21 @@ describe('Worker Logic', () => {
     expect(json).toEqual({ error: "Invalid query parameter" });
   });
 
-  it('should reject invalid query (invalid characters)', async () => {
+  it("should reject invalid query (invalid characters)", async () => {
     const invalidBody = {
-      "requests": [
+      requests: [
         {
-          "indexName": "test",
-          "query": "bad\u0000script" // Invalid chars
-        }
-      ]
+          indexName: "test",
+          query: "bad\u0000script", // Invalid chars
+        },
+      ],
     };
 
-    const request = new Request('https://example.com/1/indexes/*/queries', {
-      method: 'POST',
+    const request = new Request("https://example.com/1/indexes/*/queries", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://www.avocadostore.de',
+        "Content-Type": "application/json",
+        Origin: "https://www.avocadostore.de",
       },
       body: JSON.stringify(invalidBody),
     });
@@ -230,18 +222,20 @@ describe('Worker Logic', () => {
     expect(response.status).toBe(400);
   });
 
-  it('should use cache when cacheKey is present', async () => {
-    const validSearchBody = { requests: [{ indexName: "test", query: "schok" }] };
+  it("should use cache when cacheKey is present", async () => {
+    const validSearchBody = {
+      requests: [{ indexName: "test", query: "schok" }],
+    };
     const cacheKey = "some-cache-key";
 
     // Mock cache match to return nothing first
     cacheMatch.mockResolvedValue(undefined);
 
     const requestOptions = {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://www.avocadostore.de',
+        "Content-Type": "application/json",
+        Origin: "https://www.avocadostore.de",
       },
       body: JSON.stringify(validSearchBody),
     };
@@ -255,33 +249,47 @@ describe('Worker Logic', () => {
     expect(cachePut).toHaveBeenCalled();
 
     // Mock cache match to return a response
-    const cachedResponse = new Response('{"cached": true}', { status: 200 });
+    const cachedResponse = new Response('{"cached": true}', {
+      status: 200,
+    });
     cacheMatch.mockResolvedValue(cachedResponse);
 
     // Second request - should return from cache
-    const response2 = await worker.fetch(new Request(url, requestOptions), env, ctx);
+    const response2 = await worker.fetch(
+      new Request(url, requestOptions),
+      env,
+      ctx
+    );
     expect(response2.status).toBe(200);
     expect(await response2.text()).toBe('{"cached": true}');
   });
 
-  it('should use different cache entries for different X-AS-Cache-Key headers', async () => {
-    const url = 'https://example.com/1/indexes/*/queries';
+  it("should use different cache entries for different X-AS-Cache-Key headers", async () => {
+    const url = "https://example.com/1/indexes/*/queries";
     const body1 = { requests: [{ indexName: "test", query: "search1" }] };
     const body2 = { requests: [{ indexName: "test", query: "search2" }] };
 
     // 1. Request with Key 1
     cacheMatch.mockResolvedValueOnce(undefined); // Cache miss
-    globalThis.fetch = vi.fn().mockResolvedValueOnce(new Response('{"result": "search1"}', { status: 200 }));
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('{"result": "search1"}', { status: 200 })
+      );
 
-    await worker.fetch(new Request(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://www.avocadostore.de',
-        'X-AS-Cache-Key': 'key-1'
-      },
-      body: JSON.stringify(body1),
-    }), env, ctx);
+    await worker.fetch(
+      new Request(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+          "X-AS-Cache-Key": "key-1",
+        },
+        body: JSON.stringify(body1),
+      }),
+      env,
+      ctx
+    );
 
     // Verify what was put in cache - uses Request object as cache key
     expect(cachePut).toHaveBeenCalledTimes(1);
@@ -289,24 +297,32 @@ describe('Worker Logic', () => {
 
     // 2. Request with Key 2
     cacheMatch.mockResolvedValueOnce(undefined); // Cache miss
-    globalThis.fetch = vi.fn().mockResolvedValueOnce(new Response('{"result": "search2"}', { status: 200 }));
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('{"result": "search2"}', { status: 200 })
+      );
 
-    await worker.fetch(new Request(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': 'https://www.avocadostore.de',
-        'X-AS-Cache-Key': 'key-2'
-      },
-      body: JSON.stringify(body2),
-    }), env, ctx);
+    await worker.fetch(
+      new Request(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+          "X-AS-Cache-Key": "key-2",
+        },
+        body: JSON.stringify(body2),
+      }),
+      env,
+      ctx
+    );
 
     expect(cachePut).toHaveBeenCalledTimes(2);
     const cacheRequest2 = cachePut.mock.calls[1][0] as Request;
 
     // The URLs used for caching MUST be different for the cache to treat them differently
     expect(cacheRequest1.url).not.toBe(cacheRequest2.url);
-    expect(cacheRequest1.url).toContain('key-1');
-    expect(cacheRequest2.url).toContain('key-2');
+    expect(cacheRequest1.url).toContain("key-1");
+    expect(cacheRequest2.url).toContain("key-2");
   });
 });
