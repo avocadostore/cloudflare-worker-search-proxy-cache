@@ -1,19 +1,21 @@
 {
-	"name": "cloudflare-worker-search-proxy-cache",
-	"version": "0.0.0",
-	"private": true,
-	"scripts": {
-		"deploy": "wrangler deploy --env staging",
-		"deploy:production": "wrangler deploy --env production",
-		"dev": "wrangler dev --env staging",
-		"start": "wrangler dev --env staging",
-		"test": "vitest",
-		"cf-typegen": "wrangler types"
-	},
-	"devDependencies": {
-		"@cloudflare/vitest-pool-workers": "^0.7.5",
-		"typescript": "^5.5.2",
-		"vitest": "~3.0.7",
-		"wrangler": "^4.7.0"
-	}
+  "name": "cloudflare-worker-search-proxy-cache",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production",
+    "dev": "wrangler dev --env staging",
+    "start": "wrangler dev --env staging",
+    "test": "vitest",
+    "cf-typegen": "wrangler types",
+    "predeploy": "yarn run test",
+    "predeploy:production": "yarn run test"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.7.5",
+    "typescript": "^5.5.2",
+    "vitest": "~3.0.7",
+    "wrangler": "^4.7.0"
+  }
 }
