@@ -330,4 +330,240 @@ describe("Worker Logic", () => {
     expect(cacheUrl1).toContain("key-1");
     expect(cacheUrl2).toContain("key-2");
   });
+
+  describe("Algolia Insights forwarding", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValue(new Response('{"status": "OK"}', { status: 200 }));
+    });
+
+    it("should forward insights events to Algolia Insights endpoint", async () => {
+      const insightsBody = {
+        events: [
+          {
+            eventType: "click",
+            eventName: "Product Clicked",
+            index: "products_de_v1.0.0",
+            userToken: "user-123",
+            timestamp: Date.now(),
+            objectIDs: ["product-1"],
+            positions: [1],
+            queryID: "query-123",
+          },
+        ],
+      };
+
+      const request = new Request("https://example.com/1/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+        },
+        body: JSON.stringify(insightsBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(200);
+      expect(globalThis.fetch).toHaveBeenCalled();
+
+      // Verify the request was forwarded to insights.algolia.io
+      const fetchCall = (globalThis.fetch as any).mock.calls[0];
+      const fetchUrl = fetchCall[0];
+      expect(fetchUrl).toContain("insights.algolia.io/1/events");
+    });
+
+    it("should use lowercase x-algolia params and remove uppercase duplicates", async () => {
+      const insightsBody = {
+        events: [
+          {
+            eventType: "view",
+            eventName: "Product Viewed",
+            index: "products_de_v1.0.0",
+            userToken: "user-456",
+            timestamp: Date.now(),
+            objectIDs: ["product-2"],
+          },
+        ],
+      };
+
+      // Simulate a request with uppercase query params (as insights-js sends them)
+      const url = new URL("https://example.com/1/events");
+      url.searchParams.set("X-Algolia-Application-Id", "UPPERCASE_APP_ID");
+      url.searchParams.set("X-Algolia-API-Key", "UPPERCASE_API_KEY");
+
+      const request = new Request(url.toString(), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+        },
+        body: JSON.stringify(insightsBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(200);
+      expect(globalThis.fetch).toHaveBeenCalled();
+
+      // Verify the forwarded URL has lowercase params set from env and no uppercase duplicates
+      const fetchCall = (globalThis.fetch as any).mock.calls[0];
+      const forwardedUrl = new URL(fetchCall[0]);
+
+      // Should have lowercase params from env
+      expect(forwardedUrl.searchParams.get("x-algolia-api-key")).toBe(
+        "testtest"
+      );
+      expect(forwardedUrl.searchParams.get("x-algolia-application-id")).toBe(
+        "testtest"
+      );
+
+      // Should NOT have the uppercase params (they were deleted)
+      expect(forwardedUrl.searchParams.has("X-Algolia-Application-Id")).toBe(
+        false
+      );
+      expect(forwardedUrl.searchParams.has("X-Algolia-API-Key")).toBe(false);
+    });
+
+    it("should set correct insights agent in query params", async () => {
+      const insightsBody = {
+        events: [
+          {
+            eventType: "conversion",
+            eventName: "Product Purchased",
+            index: "products_de_v1.0.0",
+            userToken: "user-789",
+            timestamp: Date.now(),
+            objectIDs: ["product-3"],
+          },
+        ],
+      };
+
+      const request = new Request("https://example.com/1/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+        },
+        body: JSON.stringify(insightsBody),
+      });
+
+      await worker.fetch(request, env, ctx);
+
+      const fetchCall = (globalThis.fetch as any).mock.calls[0];
+      const forwardedUrl = new URL(fetchCall[0]);
+
+      // Should have the insights agent
+      expect(forwardedUrl.searchParams.get("X-Algolia-Agent")).toContain(
+        "insights-js"
+      );
+      expect(forwardedUrl.searchParams.get("X-Algolia-Agent")).toContain(
+        "insights-middleware"
+      );
+    });
+
+    it("should handle insights endpoint errors gracefully", async () => {
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
+
+      const insightsBody = {
+        events: [
+          {
+            eventType: "click",
+            eventName: "Product Clicked",
+            index: "products_de_v1.0.0",
+            userToken: "user-error",
+            timestamp: Date.now(),
+            objectIDs: ["product-error"],
+          },
+        ],
+      };
+
+      const request = new Request("https://example.com/1/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+        },
+        body: JSON.stringify(insightsBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(502);
+      const text = await response.text();
+      expect(text).toBe("Failed to reach Algolia Insights endpoint");
+    });
+
+    it("should forward insights events with SSR request header", async () => {
+      const insightsBody = {
+        events: [
+          {
+            eventType: "click",
+            eventName: "SSR Click",
+            index: "products_de_v1.0.0",
+            userToken: "user-ssr",
+            timestamp: Date.now(),
+            objectIDs: ["product-ssr"],
+          },
+        ],
+      };
+
+      const request = new Request("https://example.com/1/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+          "x-ssr-request": "ASDf928gh2efhajsdf!!",
+        },
+        body: JSON.stringify(insightsBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(200);
+      expect(globalThis.fetch).toHaveBeenCalled();
+
+      const fetchCall = (globalThis.fetch as any).mock.calls[0];
+      const fetchUrl = fetchCall[0];
+      expect(fetchUrl).toContain("insights.algolia.io/1/events");
+    });
+
+    it("should preserve original request headers when forwarding insights", async () => {
+      const insightsBody = {
+        events: [
+          {
+            eventType: "view",
+            eventName: "Product Viewed",
+            index: "products_de_v1.0.0",
+            userToken: "user-headers",
+            timestamp: Date.now(),
+            objectIDs: ["product-headers"],
+          },
+        ],
+      };
+
+      const request = new Request("https://example.com/1/events", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+          "User-Agent": "TestAgent/1.0",
+          "X-Custom-Header": "custom-value",
+        },
+        body: JSON.stringify(insightsBody),
+      });
+
+      await worker.fetch(request, env, ctx);
+
+      const fetchCall = (globalThis.fetch as any).mock.calls[0];
+      const fetchOptions = fetchCall[1];
+
+      // Verify headers were forwarded (header names are lowercase in the headers object)
+      expect(fetchOptions.headers["content-type"]).toBe("application/json");
+      expect(fetchOptions.headers["user-agent"]).toBe("TestAgent/1.0");
+      expect(fetchOptions.headers["x-custom-header"]).toBe("custom-value");
+    });
+  });
 });
