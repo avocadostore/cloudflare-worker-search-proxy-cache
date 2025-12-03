@@ -8,9 +8,10 @@
     "dev": "wrangler dev --env staging",
     "start": "wrangler dev --env staging",
     "test": "vitest",
+    "test:deploy": "vitest --watch=false",
     "cf-typegen": "wrangler types",
-    "predeploy": "yarn run test",
-    "predeploy:production": "yarn run test"
+    "predeploy": "yarn run test:deploy",
+    "predeploy:production": "yarn run test:deploy"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.7.5",
