@@ -25,7 +25,7 @@
         }
       ],
       "vars": {
-        "CACHE_TTL_SSR": "300",
+        "CACHE_TTL_SSR": "0",
         "CACHE_TTL_CLIENT": "0"
       }
     },
@@ -43,7 +43,7 @@
         }
       ],
       "vars": {
-        "CACHE_TTL_SSR": "600",
+        "CACHE_TTL_SSR": "28800", // 8hrs
         "CACHE_TTL_CLIENT": "0"
       }
     }
