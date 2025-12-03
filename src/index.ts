@@ -263,7 +263,11 @@ async function fetchFromAlgolia(
   }
 
   if (pathname === "/1/events") {
-    algoliaParams.set("x-algolia-agent", INSIGHTS_AGENT);
+    // Unfortunately insights agent uses uppercase query params, so remove duplicates, as we set ours above.
+    // Support case will be filled. Added unit test to test current behavior.
+    algoliaParams.set("X-Algolia-Agent", INSIGHTS_AGENT);
+    algoliaParams.delete("X-Algolia-Application-Id");
+    algoliaParams.delete("X-Algolia-API-Key");
 
     const insightsUrl = `https://insights.algolia.io/1/events?${algoliaParams.toString()}`;
     logEvent("log", "Forwarding to Algolia Insights endpoint", {

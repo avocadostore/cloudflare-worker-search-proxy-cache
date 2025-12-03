@@ -1,0 +1,6 @@
+# example owners file:
+# https://docs.github.com/en/github/creating-cloning-and-archiving-repositories/creating-a-repository-on-github/about-code-owners#example-of-a-codeowners-file
+
+# Default Owner
+* @avocadostore/frontend-team @avocadostore/sre-team
+
