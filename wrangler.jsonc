@@ -31,9 +31,9 @@
     },
     "production": {
       "observability": {
-        "enabled": true,
+        "enabled": false,
         "traces": {
-          "enabled": true
+          "enabled": false
         }
       },
       "routes": [
