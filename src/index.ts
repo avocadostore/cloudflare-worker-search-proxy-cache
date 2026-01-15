@@ -149,7 +149,7 @@ export default {
     // Caching Logic
     // Note: Cloudflare Cache API caches responses based on the full request URL.
     // For POST requests, we create a synthetic GET request with a cache key parameter.
-    // Only cache SSR requests to avoid caching client-side requests.
+    // Cache SSR requests when CACHE_TTL_SSR > 0, and client-side requests when CACHE_TTL_CLIENT > 0.
     // Reference: https://developers.cloudflare.com/workers/runtime-apis/cache/
     const cache = caches.default;
     const cacheKeyParam =
@@ -159,7 +159,10 @@ export default {
     let response: Response | undefined;
     let isCacheHit = false;
 
-    if (request.method === "POST" && cacheKeyParam && isSSRRequest) {
+    const cacheTtlClient = parseInt(env.CACHE_TTL_CLIENT || "0", 10) || 0;
+    const shouldCache = isSSRRequest || cacheTtlClient > 0;
+
+    if (request.method === "POST" && cacheKeyParam && shouldCache) {
       const cacheUrl = new URL(url.toString());
       cacheUrl.searchParams.set("cacheKey", cacheKeyParam);
 
@@ -196,7 +199,7 @@ export default {
         isSSRRequest
       );
 
-      if (cacheKeyUrl && response.ok && isSSRRequest) {
+      if (cacheKeyUrl && response.ok && shouldCache) {
         const responseToCache = response.clone();
         const headers = new Headers(responseToCache.headers);
 
@@ -297,11 +300,6 @@ async function fetchFromAlgolia(
     algoliaParams.delete("X-Algolia-API-Key");
 
     const insightsUrl = `https://insights.algolia.io/1/events?${algoliaParams.toString()}`;
-    logEvent("log", "Forwarding to Algolia Insights endpoint", {
-      url: insightsUrl,
-      is_ssr_request: isSSRRequest,
-      user_agent: userAgent,
-    });
     try {
       return await fetch(insightsUrl, {
         method: ctx.method,
@@ -459,13 +457,26 @@ async function tryAlgoliaHosts(
     }
   }
 
-  // All hosts failed - return detailed error
-  const errorDetail: ErrorDetail = {
+  // All hosts failed - return detailed error with request context
+  const sampleUrl = hosts && hosts.length > 0
+    ? `https://${hosts[0]}${pathname}${search}`
+    : 'unknown';
+
+  const errorDetail: ErrorDetail & {
+    algolia_url?: string;
+    algolia_method?: string;
+    algolia_headers?: Record<string, string>;
+    algolia_body?: string;
+  } = {
     error: 'All Algolia hosts failed',
     errorType: 'algolia',
     details: `Tried ${attempts.length} host(s): ${attempts
       .map((a) => `${a.host}${a.status ? ` (${a.status})` : ''}`)
       .join(', ')}`,
+    algolia_url: sampleUrl,
+    algolia_method: method,
+    algolia_headers: headers,
+    algolia_body: bodyStr,
     timestamp: new Date().toISOString(),
   };
 
@@ -552,16 +563,47 @@ async function logRequest(
   if (!response.ok) {
     try {
       const errorText = await response.clone().text();
-      const errorData = JSON.parse(errorText) as ErrorDetail;
-      if (errorData.details) {
-        logContext.error_details = errorData.details;
-      }
-      if (errorData.errorType) {
-        logContext.error_type = errorData.errorType;
-        errorType = errorData.errorType;
+
+      // Try to parse as our ErrorDetail format (for proxy errors)
+      try {
+        const errorData = JSON.parse(errorText) as ErrorDetail & {
+          algolia_url?: string;
+          algolia_method?: string;
+          algolia_headers?: Record<string, string>;
+          algolia_body?: string;
+        };
+        if (errorData.details) {
+          logContext.error_details = errorData.details;
+        }
+        if (errorData.errorType) {
+          logContext.error_type = errorData.errorType;
+          errorType = errorData.errorType;
+        }
+        // Include Algolia request details for network failures
+        if (errorData.algolia_url) {
+          logContext.algolia_url = errorData.algolia_url;
+        }
+        if (errorData.algolia_method) {
+          logContext.algolia_method = errorData.algolia_method;
+        }
+        if (errorData.algolia_headers) {
+          logContext.algolia_headers = errorData.algolia_headers;
+        }
+        if (errorData.algolia_body) {
+          logContext.algolia_body = errorData.algolia_body;
+        }
+      } catch {
+        // Not our error format - treat as raw Algolia response
+        logContext.algolia_response = errorText;
+        try {
+          // Try to parse as JSON for better readability
+          logContext.algolia_response_json = JSON.parse(errorText);
+        } catch {
+          // Keep as text if not JSON
+        }
       }
     } catch {
-      // If response is not JSON or can't be parsed, skip adding details
+      // If response can't be read, skip adding details
     }
   }
 
