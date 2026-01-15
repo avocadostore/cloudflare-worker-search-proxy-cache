@@ -197,7 +197,8 @@ describe("Worker Logic", () => {
 
     expect(response.status).toBe(400);
     const json = await response.json();
-    expect(json).toEqual({ error: "Invalid query parameter" });
+    expect(json.error).toContain('Query too short');
+    expect(json.errorType).toBe('too_short');
   });
 
   it("should reject invalid query (invalid characters)", async () => {
@@ -222,6 +223,9 @@ describe("Worker Logic", () => {
     const response = await worker.fetch(request, env, ctx);
 
     expect(response.status).toBe(400);
+    const json = await response.json();
+    expect(json.error).toContain('invalid characters');
+    expect(json.errorType).toBe('invalid_characters');
   });
 
   it("should use cache when cacheKey is present", async () => {
@@ -607,6 +611,7 @@ describe("Worker Logic", () => {
       expect(response.status).toBe(400);
       const json = await response.json();
       expect(json.error).toBe("Malformed JSON body");
+      expect(json.errorType).toBe('malformed_json');
       expect(json.details).toBeDefined();
     });
 
@@ -778,8 +783,11 @@ describe("Worker Logic", () => {
       const response = await worker.fetch(request, env, ctx);
 
       expect(response.status).toBe(502);
-      const text = await response.text();
-      expect(text).toBe("All Algolia hosts failed");
+      const json = await response.json();
+      expect(json.error).toBe('All Algolia hosts failed');
+      expect(json.errorType).toBe('algolia');
+      expect(json.details).toContain('Tried');
+      expect(json.details).toContain('host');
     });
 
     it("should use custom cache TTL for SSR requests", async () => {
