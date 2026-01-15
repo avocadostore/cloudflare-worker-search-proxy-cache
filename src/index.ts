@@ -371,12 +371,13 @@ async function parseRequestBody(request: Request): Promise<ParseResult> {
     if (body?.requests) {
       const validation = isInvalidQuery(body.requests);
       if (validation.invalid) {
+        const errorType = validation.errorType ?? 'invalid_characters';
         const errorDetail: ErrorDetail = {
           error:
-            validation.errorType === 'too_short'
+            errorType === 'too_short'
               ? 'Query too short (minimum 3 characters)'
               : 'Query contains invalid characters',
-          errorType: validation.errorType!,
+          errorType,
           details: validation.query ? `Query: "${validation.query}"` : undefined,
           timestamp: new Date().toISOString(),
         };
