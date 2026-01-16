@@ -13,9 +13,12 @@
   "env": {
     "staging": {
       "observability": {
-        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "invocation_logs": false
+        },
         "traces": {
-          "enabled": true
+          "enabled": true,
         }
       },
       "routes": [
@@ -31,7 +34,10 @@
     },
     "production": {
       "observability": {
-        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "invocation_logs": false
+        },
         "traces": {
           "enabled": false
         }
