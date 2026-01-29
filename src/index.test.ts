@@ -625,7 +625,7 @@ describe("Worker Logic", () => {
 
       const response = await worker.fetch(request, env, ctx);
 
-      expect(response.status).toBe(204);
+      expect(response.status).toEqual(204);
       expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
         "http://localhost:3000"
       );

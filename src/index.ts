@@ -351,7 +351,7 @@ function isInvalidQuery(requests: SearchRequest[]): {
         return {
           invalid: true,
           errorType: 'invalid_characters',
-          query: query.substring(0, 50), // Limit to 50 chars for logging
+          query: query.substring(0, 100), // Limit to 100 chars for logging
         };
       }
     }
@@ -361,7 +361,7 @@ function isInvalidQuery(requests: SearchRequest[]): {
     : {
       invalid: true,
       errorType: 'too_short',
-      query: requests.find((r) => r.query)?.query?.toString().substring(0, 50),
+      query: requests.find((r) => r.query)?.query?.toString().substring(0, 100),
     };
 }
 
