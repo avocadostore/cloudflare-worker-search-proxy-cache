@@ -33,6 +33,13 @@ type ErrorDetail = {
   timestamp: string;
 };
 
+type AlgoliaError = ErrorDetail & {
+  algolia_url?: string;
+  algolia_method?: string;
+  algolia_headers?: Record<string, string>;
+  algolia_body?: string;
+};
+
 type HostAttempt = {
   host: string;
   status?: number;
@@ -463,12 +470,7 @@ async function tryAlgoliaHosts(
     ? `https://${hosts[0]}${pathname}${search}`
     : 'unknown';
 
-  const errorDetail: ErrorDetail & {
-    algolia_url?: string;
-    algolia_method?: string;
-    algolia_headers?: Record<string, string>;
-    algolia_body?: string;
-  } = {
+  const errorDetail: AlgoliaError = {
     error: 'All Algolia hosts failed',
     errorType: 'algolia',
     details: `Tried ${attempts.length} host(s): ${attempts
@@ -567,12 +569,7 @@ async function logRequest(
 
       // Try to parse as our ErrorDetail format (for proxy errors)
       try {
-        const errorData = JSON.parse(errorText) as ErrorDetail & {
-          algolia_url?: string;
-          algolia_method?: string;
-          algolia_headers?: Record<string, string>;
-          algolia_body?: string;
-        };
+        const errorData = JSON.parse(errorText) as AlgoliaError;
         if (errorData.details) {
           logContext.error_details = errorData.details;
         }
