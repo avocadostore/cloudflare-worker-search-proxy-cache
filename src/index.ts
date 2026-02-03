@@ -466,7 +466,7 @@ async function tryAlgoliaHosts(
   }
 
   // All hosts failed - return detailed error with request context
-  const sampleUrl = hosts && hosts.length > 0
+  const algoliaHost = hosts && hosts.length > 0
     ? `https://${hosts[0]}${pathname}${search}`
     : 'unknown';
 
