@@ -49,7 +49,7 @@ describe("Worker Logic", () => {
     const response = await worker.fetch(request, env, ctx);
 
     expect(response.status).toBe(204);
-    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+    expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
       "https://www.avocadostore.de"
     );
     expect(response.headers.get("Access-Control-Allow-Methods")).toContain(
@@ -106,8 +106,8 @@ describe("Worker Logic", () => {
     expect(fetchCall).toBeDefined();
     const fetchUrl = new URL(fetchCall[0]);
     // The env values are empty strings in the test environment
-    expect(fetchUrl.searchParams.get("x-algolia-api-key")).toBe("testtest");
-    expect(fetchUrl.searchParams.get("x-algolia-application-id")).toBe(
+    expect(fetchUrl.searchParams.get("x-algolia-api-key")).toEqual("testtest");
+    expect(fetchUrl.searchParams.get("x-algolia-application-id")).toEqual(
       "testtest"
     );
   });
@@ -198,7 +198,7 @@ describe("Worker Logic", () => {
     expect(response.status).toBe(400);
     const json = await response.json();
     expect(json.error).toContain('Query too short');
-    expect(json.errorType).toBe('too_short');
+    expect(json.errorType).toEqual('too_short');
   });
 
   it("should reject invalid query (invalid characters)", async () => {
@@ -225,7 +225,7 @@ describe("Worker Logic", () => {
     expect(response.status).toBe(400);
     const json = await response.json();
     expect(json.error).toContain('invalid characters');
-    expect(json.errorType).toBe('invalid_characters');
+    expect(json.errorType).toEqual('invalid_characters');
   });
 
   it("should use cache when cacheKey is present", async () => {
@@ -268,7 +268,7 @@ describe("Worker Logic", () => {
       ctx
     );
     expect(response2.status).toBe(200);
-    expect(await response2.text()).toBe('{"cached": true}');
+    expect(await response2.text()).toEqual('{"cached": true}');
   });
 
   it("should use different cache entries for different X-AS-Cache-Key headers", async () => {
@@ -417,10 +417,10 @@ describe("Worker Logic", () => {
       const forwardedUrl = new URL(fetchCall[0]);
 
       // Should have lowercase params from env
-      expect(forwardedUrl.searchParams.get("x-algolia-api-key")).toBe(
+      expect(forwardedUrl.searchParams.get("x-algolia-api-key")).toEqual(
         "testtest"
       );
-      expect(forwardedUrl.searchParams.get("x-algolia-application-id")).toBe(
+      expect(forwardedUrl.searchParams.get("x-algolia-application-id")).toEqual(
         "testtest"
       );
 
@@ -497,7 +497,7 @@ describe("Worker Logic", () => {
 
       expect(response.status).toBe(502);
       const text = await response.text();
-      expect(text).toBe("Failed to reach Algolia Insights endpoint");
+      expect(text).toEqual("Failed to reach Algolia Insights endpoint");
     });
 
     it("should forward insights events with SSR request header", async () => {
@@ -565,9 +565,9 @@ describe("Worker Logic", () => {
       const fetchOptions = fetchCall[1];
 
       // Verify headers were forwarded (header names are lowercase in the headers object)
-      expect(fetchOptions.headers["content-type"]).toBe("application/json");
-      expect(fetchOptions.headers["user-agent"]).toBe("TestAgent/1.0");
-      expect(fetchOptions.headers["x-custom-header"]).toBe("custom-value");
+      expect(fetchOptions.headers["content-type"]).toEqual("application/json");
+      expect(fetchOptions.headers["user-agent"]).toEqual("TestAgent/1.0");
+      expect(fetchOptions.headers["x-custom-header"]).toEqual("custom-value");
     });
   });
 
@@ -610,8 +610,8 @@ describe("Worker Logic", () => {
 
       expect(response.status).toBe(400);
       const json = await response.json();
-      expect(json.error).toBe("Malformed JSON body");
-      expect(json.errorType).toBe('malformed_json');
+      expect(json.error).toEqual("Malformed JSON body");
+      expect(json.errorType).toEqual('malformed_json');
       expect(json.details).toBeDefined();
     });
 
@@ -626,7 +626,7 @@ describe("Worker Logic", () => {
       const response = await worker.fetch(request, env, ctx);
 
       expect(response.status).toEqual(204);
-      expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
         "http://localhost:3000"
       );
     });
@@ -647,7 +647,7 @@ describe("Worker Logic", () => {
 
       const response = await worker.fetch(request, env, ctx);
 
-      expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
         "https://www.avocadostore.de"
       );
     });
@@ -668,7 +668,7 @@ describe("Worker Logic", () => {
       const response = await worker.fetch(request, env, ctx);
 
       expect(response.status).toBe(200);
-      expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
         "https://www.avocadostore.de"
       );
     });
@@ -784,8 +784,8 @@ describe("Worker Logic", () => {
 
       expect(response.status).toBe(502);
       const json = await response.json();
-      expect(json.error).toBe('All Algolia hosts failed');
-      expect(json.errorType).toBe('algolia');
+      expect(json.error).toEqual('All Algolia hosts failed');
+      expect(json.errorType).toEqual('algolia');
       expect(json.details).toContain('Tried');
       expect(json.details).toContain('host');
     });
@@ -830,10 +830,10 @@ describe("Worker Logic", () => {
       const response = await worker.fetch(request, env, ctx);
 
       expect(response.status).toBe(204);
-      expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
         "https://shop.avocadostore.de"
       );
-      expect(response.headers.get("Vary")).toBe("Origin");
+      expect(response.headers.get("Vary")).toEqual("Origin");
     });
 
     it("should handle error responses from Algolia with error body", async () => {
@@ -900,7 +900,7 @@ describe("Worker Logic", () => {
       const response = await worker.fetch(request, env, ctx);
 
       expect(response.status).toBe(204);
-      expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
         "https://www.avocadostore.de"
       );
     });
@@ -945,7 +945,7 @@ describe("Worker Logic", () => {
       const response = await worker.fetch(request, env, ctx);
 
       expect(response.status).toBe(200);
-      expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
         "https://dash.cloudflare.com"
       );
     });
@@ -961,7 +961,7 @@ describe("Worker Logic", () => {
       const response = await worker.fetch(request, env, ctx);
 
       expect(response.status).toBe(204);
-      expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
         "https://www.avocadostore.dev"
       );
     });
