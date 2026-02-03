@@ -24,6 +24,29 @@ type ParseResult = {
   error?: Response;
 };
 
+type ValidationErrorType = 'too_short' | 'invalid_characters' | 'malformed_json';
+
+type ErrorDetail = {
+  error: string;
+  errorType: ValidationErrorType | 'network' | 'algolia';
+  details?: string;
+  timestamp: string;
+};
+
+type AlgoliaError = ErrorDetail & {
+  algolia_url?: string;
+  algolia_method?: string;
+  algolia_headers?: Record<string, string>;
+  algolia_body?: string;
+};
+
+type HostAttempt = {
+  host: string;
+  status?: number;
+  error?: string;
+  ok?: boolean;
+};
+
 type LogEntry = {
   message: string;
   status: string | number;
@@ -104,12 +127,23 @@ export default {
     if (request.method === "POST") {
       const result = await parseRequestBody(request);
       if (result.error) {
+        // Parse error details from response for logging
+        const errorText = await result.error.clone().text();
+        let errorDetails: ErrorDetail | undefined;
+        try {
+          errorDetails = JSON.parse(errorText) as ErrorDetail;
+        } catch {
+          // If parsing fails, use generic error
+        }
+
         ctx.waitUntil(
-          logEvent("error", "Request validation failed", {
+          logEvent("error", `[FAILED] ${errorDetails?.error || "Validation error"} Algolia request to: ${reqContext.pathname}`, {
             origin,
             url: request.url,
             method: request.method,
-            error: "Invalid query parameter or malformed JSON",
+            error: errorDetails?.error || "Validation error",
+            error_type: errorDetails?.errorType,
+            error_details: errorDetails?.details,
             is_ssr_request: isSSRRequest,
             user_agent: request.headers.get("User-Agent") || "unknown",
           })
@@ -122,7 +156,7 @@ export default {
     // Caching Logic
     // Note: Cloudflare Cache API caches responses based on the full request URL.
     // For POST requests, we create a synthetic GET request with a cache key parameter.
-    // Only cache SSR requests to avoid caching client-side requests.
+    // Cache SSR requests when CACHE_TTL_SSR > 0, and client-side requests when CACHE_TTL_CLIENT > 0.
     // Reference: https://developers.cloudflare.com/workers/runtime-apis/cache/
     const cache = caches.default;
     const cacheKeyParam =
@@ -132,7 +166,10 @@ export default {
     let response: Response | undefined;
     let isCacheHit = false;
 
-    if (request.method === "POST" && cacheKeyParam && isSSRRequest) {
+    const cacheTtlClient = parseInt(env.CACHE_TTL_CLIENT || "0", 10) || 0;
+    const shouldCache = isSSRRequest || cacheTtlClient > 0;
+
+    if (request.method === "POST" && cacheKeyParam && shouldCache) {
       const cacheUrl = new URL(url.toString());
       cacheUrl.searchParams.set("cacheKey", cacheKeyParam);
 
@@ -169,7 +206,7 @@ export default {
         isSSRRequest
       );
 
-      if (cacheKeyUrl && response.ok && isSSRRequest) {
+      if (cacheKeyUrl && response.ok && shouldCache) {
         const responseToCache = response.clone();
         const headers = new Headers(responseToCache.headers);
 
@@ -270,11 +307,6 @@ async function fetchFromAlgolia(
     algoliaParams.delete("X-Algolia-API-Key");
 
     const insightsUrl = `https://insights.algolia.io/1/events?${algoliaParams.toString()}`;
-    logEvent("log", "Forwarding to Algolia Insights endpoint", {
-      url: insightsUrl,
-      is_ssr_request: isSSRRequest,
-      user_agent: userAgent,
-    });
     try {
       return await fetch(insightsUrl, {
         method: ctx.method,
@@ -305,9 +337,13 @@ async function fetchFromAlgolia(
   );
 }
 
-function isInvalidQuery(requests: SearchRequest[]): boolean {
+function isInvalidQuery(requests: SearchRequest[]): {
+  invalid: boolean;
+  errorType?: ValidationErrorType;
+  query?: string;
+} {
   if (requests.every((req) => req.query === "" || req.query === undefined)) {
-    return false;
+    return { invalid: false };
   }
 
   let hasLongQuery = false;
@@ -319,36 +355,61 @@ function isInvalidQuery(requests: SearchRequest[]): boolean {
         hasLongQuery = true;
       }
       if (!ALLOWED_QUERY_REGEX.test(query)) {
-        return true;
+        return {
+          invalid: true,
+          errorType: 'invalid_characters',
+          query,
+        };
       }
     }
   }
-  return !hasLongQuery;
+  return hasLongQuery
+    ? { invalid: false }
+    : {
+      invalid: true,
+      errorType: 'too_short',
+      query: requests.find((r) => r.query)?.query?.toString(),
+    };
 }
 
 async function parseRequestBody(request: Request): Promise<ParseResult> {
   try {
     const body = (await request.json()) as IncomingBody;
-    if (body?.requests && isInvalidQuery(body.requests)) {
-      return {
-        error: new Response('{"error":"Invalid query parameter"}', {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        }),
-      };
+    if (body?.requests) {
+      const validation = isInvalidQuery(body.requests);
+      if (validation.invalid) {
+        const errorType = validation.errorType ?? 'invalid_characters';
+        const errorDetail: ErrorDetail = {
+          error:
+            errorType === 'too_short'
+              ? 'Query too short (minimum 3 characters)'
+              : 'Query contains invalid characters',
+          errorType,
+          details: validation.query ? `Query: "${validation.query}"` : undefined,
+          timestamp: new Date().toISOString(),
+        };
+        return {
+          error: new Response(JSON.stringify(errorDetail), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
+        };
+      }
     }
     return { body };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    const escapedMessage = message.replaceAll('"', String.raw`\"`);
+    const errorDetail: ErrorDetail = {
+      error: 'Malformed JSON body',
+      errorType: 'malformed_json',
+      details: message,
+      timestamp: new Date().toISOString(),
+    };
     return {
-      error: new Response(
-        `{"error":"Malformed JSON body","details":"${escapedMessage}"}`,
-        {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        }
-      ),
+      error: new Response(JSON.stringify(errorDetail), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }),
     };
   }
 }
@@ -363,7 +424,8 @@ async function tryAlgoliaHosts(
   isSSRRequest?: boolean,
   userAgent?: string
 ): Promise<Response> {
-  let counter = 1;
+  const attempts: HostAttempt[] = [];
+
   for (const host of hosts || []) {
     try {
       const url = "https://" + host + pathname + search;
@@ -373,45 +435,58 @@ async function tryAlgoliaHosts(
         body: bodyStr,
       });
 
-      const logData: LogEntry = {
-        message: "Algolia host attempt " + host,
-        host: host,
+      const attempt: HostAttempt = {
+        host,
         status: response.status,
         ok: response.ok,
-        url,
-        is_ssr_request: isSSRRequest,
-        user_agent: userAgent,
-        counter: counter++,
       };
 
       // Capture error response body for failed requests
       if (!response.ok) {
         try {
           const errorBody = await response.clone().text();
-          logData.error_response_body = errorBody;
+          attempt.error = errorBody;
         } catch (e) {
-          logData.error_body_read_failed = String(e);
+          attempt.error = `Failed to read error body: ${String(e)}`;
         }
       }
 
-      await logEvent("log", logData.message, logData);
+      attempts.push(attempt);
 
       if (response.ok) {
         return response;
       }
     } catch (e) {
-      await logEvent("error", "Algolia host error", {
-        message: "Algolia host error",
+      attempts.push({
         host,
         error: String(e),
-        is_ssr_request: isSSRRequest,
-        user_agent: userAgent,
       });
       // Network error, continue to next host
     }
   }
 
-  return new Response("All Algolia hosts failed", { status: 502 });
+  // All hosts failed - return detailed error with request context
+  const algoliaHost = hosts && hosts.length > 0
+    ? `https://${hosts[0]}${pathname}${search}`
+    : 'unknown';
+
+  const errorDetail: AlgoliaError = {
+    error: 'All Algolia hosts failed',
+    errorType: 'algolia',
+    details: `Tried ${attempts.length} host(s): ${attempts
+      .map((a) => `${a.host}${a.status ? ` (${a.status})` : ''}`)
+      .join(', ')}`,
+    algolia_url: sampleUrl,
+    algolia_method: method,
+    algolia_headers: headers,
+    algolia_body: bodyStr,
+    timestamp: new Date().toISOString(),
+  };
+
+  return new Response(JSON.stringify(errorDetail), {
+    status: 502,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 function isOriginAllowed(origin: string): boolean {
@@ -485,11 +560,58 @@ async function logRequest(
   if (bodyStr) {
     logContext.request_body = bodyStr;
   }
+
+  // Include error details if response failed
+  let errorType: string | undefined;
+  if (!response.ok) {
+    try {
+      const errorText = await response.clone().text();
+
+      // Try to parse as our ErrorDetail format (for proxy errors)
+      try {
+        const errorData = JSON.parse(errorText) as AlgoliaError;
+        if (errorData.details) {
+          logContext.error_details = errorData.details;
+        }
+        if (errorData.errorType) {
+          logContext.error_type = errorData.errorType;
+          errorType = errorData.errorType;
+        }
+        // Include Algolia request details for network failures
+        if (errorData.algolia_url) {
+          logContext.algolia_url = errorData.algolia_url;
+        }
+        if (errorData.algolia_method) {
+          logContext.algolia_method = errorData.algolia_method;
+        }
+        if (errorData.algolia_headers) {
+          logContext.algolia_headers = errorData.algolia_headers;
+        }
+        if (errorData.algolia_body) {
+          logContext.algolia_body = errorData.algolia_body;
+        }
+      } catch {
+        // Not our error format - treat as raw Algolia response
+        logContext.algolia_response = errorText;
+        try {
+          // Try to parse as JSON for better readability
+          logContext.algolia_response_json = JSON.parse(errorText);
+        } catch {
+          // Keep as text if not JSON
+        }
+      }
+    } catch {
+      // If response can't be read, skip adding details
+    }
+  }
+
   await logEvent(
     response.ok ? "log" : "error",
-    "Algolia proxy request to " +
-      ctx.pathname +
-      (response.ok ? " succeeded" : " failed"),
+    response.ok
+      ? `[SUCCESS] Algolia request to: ${ctx.pathname}`
+      : errorType === 'algolia'
+        ? `[FAILED] Algolia not reachable, request: ${ctx.pathname}`
+        : `[FAILED] Algolia request to: ${ctx.pathname}`,
     logContext
   );
 }

@@ -49,7 +49,7 @@ describe("Worker Logic", () => {
     const response = await worker.fetch(request, env, ctx);
 
     expect(response.status).toBe(204);
-    expect(response.headers.get("Access-Control-Allow-Origin")).toBe(
+    expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
       "https://www.avocadostore.de"
     );
     expect(response.headers.get("Access-Control-Allow-Methods")).toContain(
@@ -106,8 +106,8 @@ describe("Worker Logic", () => {
     expect(fetchCall).toBeDefined();
     const fetchUrl = new URL(fetchCall[0]);
     // The env values are empty strings in the test environment
-    expect(fetchUrl.searchParams.get("x-algolia-api-key")).toBe("testtest");
-    expect(fetchUrl.searchParams.get("x-algolia-application-id")).toBe(
+    expect(fetchUrl.searchParams.get("x-algolia-api-key")).toEqual("testtest");
+    expect(fetchUrl.searchParams.get("x-algolia-application-id")).toEqual(
       "testtest"
     );
   });
@@ -197,7 +197,8 @@ describe("Worker Logic", () => {
 
     expect(response.status).toBe(400);
     const json = await response.json();
-    expect(json).toEqual({ error: "Invalid query parameter" });
+    expect(json.error).toContain('Query too short');
+    expect(json.errorType).toEqual('too_short');
   });
 
   it("should reject invalid query (invalid characters)", async () => {
@@ -222,6 +223,9 @@ describe("Worker Logic", () => {
     const response = await worker.fetch(request, env, ctx);
 
     expect(response.status).toBe(400);
+    const json = await response.json();
+    expect(json.error).toContain('invalid characters');
+    expect(json.errorType).toEqual('invalid_characters');
   });
 
   it("should use cache when cacheKey is present", async () => {
@@ -264,7 +268,7 @@ describe("Worker Logic", () => {
       ctx
     );
     expect(response2.status).toBe(200);
-    expect(await response2.text()).toBe('{"cached": true}');
+    expect(await response2.text()).toEqual('{"cached": true}');
   });
 
   it("should use different cache entries for different X-AS-Cache-Key headers", async () => {
@@ -413,10 +417,10 @@ describe("Worker Logic", () => {
       const forwardedUrl = new URL(fetchCall[0]);
 
       // Should have lowercase params from env
-      expect(forwardedUrl.searchParams.get("x-algolia-api-key")).toBe(
+      expect(forwardedUrl.searchParams.get("x-algolia-api-key")).toEqual(
         "testtest"
       );
-      expect(forwardedUrl.searchParams.get("x-algolia-application-id")).toBe(
+      expect(forwardedUrl.searchParams.get("x-algolia-application-id")).toEqual(
         "testtest"
       );
 
@@ -493,7 +497,7 @@ describe("Worker Logic", () => {
 
       expect(response.status).toBe(502);
       const text = await response.text();
-      expect(text).toBe("Failed to reach Algolia Insights endpoint");
+      expect(text).toEqual("Failed to reach Algolia Insights endpoint");
     });
 
     it("should forward insights events with SSR request header", async () => {
@@ -561,9 +565,405 @@ describe("Worker Logic", () => {
       const fetchOptions = fetchCall[1];
 
       // Verify headers were forwarded (header names are lowercase in the headers object)
-      expect(fetchOptions.headers["content-type"]).toBe("application/json");
-      expect(fetchOptions.headers["user-agent"]).toBe("TestAgent/1.0");
-      expect(fetchOptions.headers["x-custom-header"]).toBe("custom-value");
+      expect(fetchOptions.headers["content-type"]).toEqual("application/json");
+      expect(fetchOptions.headers["user-agent"]).toEqual("TestAgent/1.0");
+      expect(fetchOptions.headers["x-custom-header"]).toEqual("custom-value");
+    });
+  });
+
+  describe("Additional Coverage Tests", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValue(new Response('{"hits": []}', { status: 200 }));
+    });
+
+    it("should handle GET requests", async () => {
+      const request = new Request(
+        "https://example.com/1/indexes/*/queries?query=test",
+        {
+          method: "GET",
+          headers: {
+            Origin: "https://www.avocadostore.de",
+          },
+        }
+      );
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(200);
+      expect(globalThis.fetch).toHaveBeenCalled();
+    });
+
+    it("should handle malformed JSON body", async () => {
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+        },
+        body: "{ invalid json",
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(400);
+      const json = await response.json();
+      expect(json.error).toEqual("Malformed JSON body");
+      expect(json.errorType).toEqual('malformed_json');
+      expect(json.details).toBeDefined();
+    });
+
+    it("should handle localhost origin", async () => {
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "http://localhost:3000",
+        },
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toEqual(204);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
+        "http://localhost:3000"
+      );
+    });
+
+    it("should handle disallowed origin", async () => {
+      const validSearchBody = {
+        requests: [{ indexName: "test", query: "search" }],
+      };
+
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://evil.com",
+        },
+        body: JSON.stringify(validSearchBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
+        "https://www.avocadostore.de"
+      );
+    });
+
+    it("should handle request without origin header", async () => {
+      const validSearchBody = {
+        requests: [{ indexName: "test", query: "search" }],
+      };
+
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(validSearchBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
+        "https://www.avocadostore.de"
+      );
+    });
+
+    it("should NOT cache non-SSR requests even with cacheKey", async () => {
+      const validSearchBody = {
+        requests: [{ indexName: "test", query: "search" }],
+      };
+
+      cacheMatch.mockResolvedValue(undefined);
+
+      const request = new Request(
+        "https://example.com/1/indexes/*/queries?cacheKey=test-key",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://www.avocadostore.de",
+            // No x-ssr-request header
+          },
+          body: JSON.stringify(validSearchBody),
+        }
+      );
+
+      await worker.fetch(request, env, ctx);
+
+      // Cache should not be used for non-SSR requests
+      expect(cacheMatch).not.toHaveBeenCalled();
+      expect(cachePut).not.toHaveBeenCalled();
+    });
+
+    it("should NOT cache failed responses", async () => {
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response('{"error": "not found"}', { status: 404 })
+        );
+
+      const validSearchBody = {
+        requests: [{ indexName: "test", query: "search" }],
+      };
+
+      cacheMatch.mockResolvedValue(undefined);
+
+      const request = new Request(
+        "https://example.com/1/indexes/*/queries?cacheKey=test-key",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://www.avocadostore.de",
+            "x-ssr-request": "ASDf928gh2efhajsdf!!",
+          },
+          body: JSON.stringify(validSearchBody),
+        }
+      );
+
+      const response = await worker.fetch(request, env, ctx);
+
+      // When all hosts fail, worker returns 502
+      expect(response.status).toBe(502);
+      // Should not cache failed responses
+      expect(cachePut).not.toHaveBeenCalled();
+    });
+
+    it("should retry multiple Algolia hosts on failure", async () => {
+      // First host fails, second succeeds
+      globalThis.fetch = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Network error"))
+        .mockResolvedValueOnce(new Response('{"hits": []}', { status: 200 }));
+
+      const validSearchBody = {
+        requests: [{ indexName: "test", query: "search" }],
+      };
+
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+        },
+        body: JSON.stringify(validSearchBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(200);
+      // Should have tried at least 2 hosts
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("should return 502 when all Algolia hosts fail", async () => {
+      // All hosts fail
+      globalThis.fetch = vi
+        .fn()
+        .mockRejectedValue(new Error("Network error"));
+
+      const validSearchBody = {
+        requests: [{ indexName: "test", query: "search" }],
+      };
+
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+        },
+        body: JSON.stringify(validSearchBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(502);
+      const json = await response.json();
+      expect(json.error).toEqual('All Algolia hosts failed');
+      expect(json.errorType).toEqual('algolia');
+      expect(json.details).toContain('Tried');
+      expect(json.details).toContain('host');
+    });
+
+    it("should use custom cache TTL for SSR requests", async () => {
+      env.CACHE_TTL_SSR = "1800"; // 30 minutes
+
+      const validSearchBody = {
+        requests: [{ indexName: "test", query: "search" }],
+      };
+
+      cacheMatch.mockResolvedValue(undefined);
+
+      const request = new Request(
+        "https://example.com/1/indexes/*/queries?cacheKey=test-key",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://www.avocadostore.de",
+            "x-ssr-request": "ASDf928gh2efhajsdf!!",
+          },
+          body: JSON.stringify(validSearchBody),
+        }
+      );
+
+      await worker.fetch(request, env, ctx);
+
+      expect(cachePut).toHaveBeenCalled();
+      const cachedResponse = cachePut.mock.calls[0][1] as Response;
+      expect(cachedResponse.headers.get("Cache-Control")).toContain("1800");
+    });
+
+    it("should handle OPTIONS with allowed origin domain", async () => {
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://shop.avocadostore.de",
+        },
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
+        "https://shop.avocadostore.de"
+      );
+      expect(response.headers.get("Vary")).toEqual("Origin");
+    });
+
+    it("should handle error responses from Algolia with error body", async () => {
+      globalThis.fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response('{"message": "Rate limit exceeded"}', { status: 429 })
+        );
+
+      const validSearchBody = {
+        requests: [{ indexName: "test", query: "search" }],
+      };
+
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+        },
+        body: JSON.stringify(validSearchBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      // When all hosts return errors, worker returns 502
+      expect(response.status).toBe(502);
+    });
+
+    it("should handle X-AS-Cache-Key header in addition to cacheKey param", async () => {
+      const validSearchBody = {
+        requests: [{ indexName: "test", query: "search" }],
+      };
+
+      cacheMatch.mockResolvedValue(undefined);
+
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+          "X-AS-Cache-Key": "header-cache-key",
+          "x-ssr-request": "ASDf928gh2efhajsdf!!",
+        },
+        body: JSON.stringify(validSearchBody),
+      });
+
+      await worker.fetch(request, env, ctx);
+
+      expect(cacheMatch).toHaveBeenCalled();
+      expect(cachePut).toHaveBeenCalled();
+      const cacheUrl = cachePut.mock.calls[0][0] as string;
+      expect(cacheUrl).toContain("header-cache-key");
+    });
+
+    it("should handle OPTIONS with SSR request header", async () => {
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://test.avocadostore.de",
+          "x-ssr-request": "ASDf928gh2efhajsdf!!",
+        },
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
+        "https://www.avocadostore.de"
+      );
+    });
+
+    it("should handle empty query strings in all requests", async () => {
+      const validBody = {
+        requests: [
+          { indexName: "test", query: "" },
+          { indexName: "test2", query: "" },
+        ],
+      };
+
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://www.avocadostore.de",
+        },
+        body: JSON.stringify(validBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      // Empty queries are allowed for category pages
+      expect(response.status).toBe(200);
+    });
+
+    it("should handle Cloudflare dashboard origin", async () => {
+      const validSearchBody = {
+        requests: [{ indexName: "test", query: "search" }],
+      };
+
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://dash.cloudflare.com",
+        },
+        body: JSON.stringify(validSearchBody),
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
+        "https://dash.cloudflare.com"
+      );
+    });
+
+    it("should handle avocadostore.dev origin", async () => {
+      const request = new Request("https://example.com/1/indexes/*/queries", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://www.avocadostore.dev",
+        },
+      });
+
+      const response = await worker.fetch(request, env, ctx);
+
+      expect(response.status).toBe(204);
+      expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
+        "https://www.avocadostore.dev"
+      );
     });
   });
 });
