@@ -24,11 +24,14 @@ type ParseResult = {
   error?: Response;
 };
 
-type ValidationErrorType = 'too_short' | 'invalid_characters' | 'malformed_json';
+type ValidationErrorType =
+  | "too_short"
+  | "invalid_characters"
+  | "malformed_json";
 
 type ErrorDetail = {
   error: string;
-  errorType: ValidationErrorType | 'network' | 'algolia';
+  errorType: ValidationErrorType | "network" | "algolia";
   details?: string;
   timestamp: string;
 };
@@ -101,7 +104,7 @@ export default {
   async fetch(
     request: Request,
     env: Env,
-    ctx: ExecutionContext
+    ctx: ExecutionContext,
   ): Promise<Response> {
     const startTime = Date.now();
     const url = new URL(request.url);
@@ -137,16 +140,20 @@ export default {
         }
 
         ctx.waitUntil(
-          logEvent("error", `[FAILED] ${errorDetails?.error || "Validation error"} Algolia request to: ${reqContext.pathname}`, {
-            origin,
-            url: request.url,
-            method: request.method,
-            error: errorDetails?.error || "Validation error",
-            error_type: errorDetails?.errorType,
-            error_details: errorDetails?.details,
-            is_ssr_request: isSSRRequest,
-            user_agent: request.headers.get("User-Agent") || "unknown",
-          })
+          logEvent(
+            "error",
+            `[FAILED] ${errorDetails?.error || "Validation error"} Algolia request to: ${reqContext.pathname}`,
+            {
+              origin,
+              url: request.url,
+              method: request.method,
+              error: errorDetails?.error || "Validation error",
+              error_type: errorDetails?.errorType,
+              error_details: errorDetails?.details,
+              is_ssr_request: isSSRRequest,
+              user_agent: request.headers.get("User-Agent") || "unknown",
+            },
+          ),
         );
         return result.error;
       }
@@ -166,7 +173,7 @@ export default {
     let response: Response | undefined;
     let isCacheHit = false;
 
-    const cacheTtlClient = parseInt(env.CACHE_TTL_CLIENT || "0", 10) || 0;
+    const cacheTtlClient = Number.parseInt(env.CACHE_TTL_CLIENT || "0", 10) || 0;
     const shouldCache = isSSRRequest || cacheTtlClient > 0;
 
     if (request.method === "POST" && cacheKeyParam && shouldCache) {
@@ -192,8 +199,6 @@ export default {
       if (cachedResponse) {
         response = cachedResponse;
         isCacheHit = true;
-      } else {
-        isCacheHit = false;
       }
     }
 
@@ -203,7 +208,7 @@ export default {
         request.headers,
         bodyStr,
         env,
-        isSSRRequest
+        isSSRRequest,
       );
 
       if (cacheKeyUrl && response.ok && shouldCache) {
@@ -211,8 +216,8 @@ export default {
         const headers = new Headers(responseToCache.headers);
 
         const cacheTtl = isSSRRequest
-          ? parseInt(env.CACHE_TTL_SSR || "600", 10) || 600
-          : parseInt(env.CACHE_TTL_CLIENT || "0", 10) || 0;
+          ? Number.parseInt(env.CACHE_TTL_SSR || "600", 10) || 600
+          : Number.parseInt(env.CACHE_TTL_CLIENT || "0", 10) || 0;
 
         headers.set("Cache-Control", `public, max-age=${cacheTtl}`);
 
@@ -242,8 +247,8 @@ export default {
         response,
         duration,
         isCacheHit,
-        bodyStr
-      )
+        bodyStr,
+      ),
     );
 
     return addCorsHeaders(response, origin, isSSRRequest);
@@ -282,7 +287,7 @@ async function fetchFromAlgolia(
   originalHeaders: Headers,
   bodyStr?: string,
   env?: Env,
-  isSSRRequest?: boolean
+  isSSRRequest?: boolean,
 ): Promise<Response> {
   const { pathname } = ctx;
   const userAgent = originalHeaders.get("User-Agent") || "unknown";
@@ -291,7 +296,7 @@ async function fetchFromAlgolia(
   algoliaParams.set("x-algolia-api-key", env?.ALGOLIA_API_KEY || "");
   algoliaParams.set(
     "x-algolia-application-id",
-    env?.ALGOLIA_APPLICATION_ID || ""
+    env?.ALGOLIA_APPLICATION_ID || "",
   );
 
   const headers: Record<string, string> = {};
@@ -333,7 +338,7 @@ async function fetchFromAlgolia(
     bodyStr,
     hosts,
     isSSRRequest,
-    userAgent
+    userAgent,
   );
 }
 
@@ -357,7 +362,7 @@ function isInvalidQuery(requests: SearchRequest[]): {
       if (!ALLOWED_QUERY_REGEX.test(query)) {
         return {
           invalid: true,
-          errorType: 'invalid_characters',
+          errorType: "invalid_characters",
           query,
         };
       }
@@ -366,10 +371,10 @@ function isInvalidQuery(requests: SearchRequest[]): {
   return hasLongQuery
     ? { invalid: false }
     : {
-      invalid: true,
-      errorType: 'too_short',
-      query: requests.find((r) => r.query)?.query?.toString(),
-    };
+        invalid: true,
+        errorType: "too_short",
+        query: requests.find((r) => r.query)?.query?.toString(),
+      };
 }
 
 async function parseRequestBody(request: Request): Promise<ParseResult> {
@@ -378,14 +383,16 @@ async function parseRequestBody(request: Request): Promise<ParseResult> {
     if (body?.requests) {
       const validation = isInvalidQuery(body.requests);
       if (validation.invalid) {
-        const errorType = validation.errorType ?? 'invalid_characters';
+        const errorType = validation.errorType ?? "invalid_characters";
         const errorDetail: ErrorDetail = {
           error:
-            errorType === 'too_short'
-              ? 'Query too short (minimum 3 characters)'
-              : 'Query contains invalid characters',
+            errorType === "too_short"
+              ? "Query too short (minimum 3 characters)"
+              : "Query contains invalid characters",
           errorType,
-          details: validation.query ? `Query: "${validation.query}"` : undefined,
+          details: validation.query
+            ? `Query: "${validation.query}"`
+            : undefined,
           timestamp: new Date().toISOString(),
         };
         return {
@@ -400,8 +407,8 @@ async function parseRequestBody(request: Request): Promise<ParseResult> {
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const errorDetail: ErrorDetail = {
-      error: 'Malformed JSON body',
-      errorType: 'malformed_json',
+      error: "Malformed JSON body",
+      errorType: "malformed_json",
       details: message,
       timestamp: new Date().toISOString(),
     };
@@ -422,7 +429,7 @@ async function tryAlgoliaHosts(
   bodyStr?: string,
   hosts?: readonly string[],
   isSSRRequest?: boolean,
-  userAgent?: string
+  userAgent?: string,
 ): Promise<Response> {
   const attempts: HostAttempt[] = [];
 
@@ -466,17 +473,18 @@ async function tryAlgoliaHosts(
   }
 
   // All hosts failed - return detailed error with request context
-  const algoliaHost = hosts && hosts.length > 0
-    ? `https://${hosts[0]}${pathname}${search}`
-    : 'unknown';
+  const algoliaHost =
+    hosts && hosts.length > 0
+      ? `https://${hosts[0]}${pathname}${search}`
+      : "unknown";
 
   const errorDetail: AlgoliaError = {
-    error: 'All Algolia hosts failed',
-    errorType: 'algolia',
+    error: "All Algolia hosts failed",
+    errorType: "algolia",
     details: `Tried ${attempts.length} host(s): ${attempts
-      .map((a) => `${a.host}${a.status ? ` (${a.status})` : ''}`)
-      .join(', ')}`,
-    algolia_url: sampleUrl,
+      .map((a) => `${a.host}${a.status ? ` (${a.status})` : ""}`)
+      .join(", ")}`,
+    algolia_url: algoliaHost,
     algolia_method: method,
     algolia_headers: headers,
     algolia_body: bodyStr,
@@ -500,7 +508,7 @@ function isOriginAllowed(origin: string): boolean {
 function addCorsHeaders(
   response: Response,
   origin: string | null,
-  isSSRRequest: boolean
+  isSSRRequest: boolean,
 ): Response {
   const headers = new Headers(response.headers);
 
@@ -514,7 +522,7 @@ function addCorsHeaders(
   headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   headers.set(
     "Access-Control-Allow-Headers",
-    "Content-Type, x-algolia-agent, x-algolia-api-key, x-algolia-application-id, x-as-cache-key, x-ssr-request"
+    "Content-Type, x-algolia-agent, x-algolia-api-key, x-algolia-application-id, x-as-cache-key, x-ssr-request",
   );
   headers.set("Access-Control-Max-Age", "86400");
 
@@ -531,7 +539,7 @@ async function logRequest(
   response: Response,
   duration: number,
   isCacheHit: boolean,
-  bodyStr?: string
+  bodyStr?: string,
 ): Promise<void> {
   const logContext: Record<string, unknown> = {
     origin: ctx.origin,
@@ -609,10 +617,10 @@ async function logRequest(
     response.ok ? "log" : "error",
     response.ok
       ? `[SUCCESS] Algolia request to: ${ctx.pathname}`
-      : errorType === 'algolia'
+      : errorType === "algolia"
         ? `[FAILED] Algolia not reachable, request: ${ctx.pathname}`
         : `[FAILED] Algolia request to: ${ctx.pathname}`,
-    logContext
+    logContext,
   );
 }
 
@@ -620,7 +628,7 @@ async function logRequest(
 async function logEvent(
   level: "log" | "error" | "warn",
   message: string,
-  context: Record<string, unknown> = {}
+  context: Record<string, unknown> = {},
 ): Promise<void> {
   try {
     const log: LogEntry = {
