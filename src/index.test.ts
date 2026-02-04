@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { env } from "cloudflare:test";
 import worker from "./index";
 
@@ -50,10 +50,10 @@ describe("Worker Logic", () => {
 
     expect(response.status).toBe(204);
     expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
-      "https://www.avocadostore.de"
+      "https://www.avocadostore.de",
     );
     expect(response.headers.get("Access-Control-Allow-Methods")).toContain(
-      "POST"
+      "POST",
     );
   });
 
@@ -101,14 +101,14 @@ describe("Worker Logic", () => {
 
     // Verify Algolia headers are set
     const fetchCall = (globalThis.fetch as any).mock.calls.find((call: any) =>
-      call[0].includes("algolia")
+      call[0].includes("algolia"),
     );
     expect(fetchCall).toBeDefined();
     const fetchUrl = new URL(fetchCall[0]);
     // The env values are empty strings in the test environment
     expect(fetchUrl.searchParams.get("x-algolia-api-key")).toEqual("testtest");
     expect(fetchUrl.searchParams.get("x-algolia-application-id")).toEqual(
-      "testtest"
+      "testtest",
     );
   });
 
@@ -197,8 +197,8 @@ describe("Worker Logic", () => {
 
     expect(response.status).toBe(400);
     const json = await response.json();
-    expect(json.error).toContain('Query too short');
-    expect(json.errorType).toEqual('too_short');
+    expect(json.error).toContain("Query too short");
+    expect(json.errorType).toEqual("too_short");
   });
 
   it("should reject invalid query (invalid characters)", async () => {
@@ -224,8 +224,8 @@ describe("Worker Logic", () => {
 
     expect(response.status).toBe(400);
     const json = await response.json();
-    expect(json.error).toContain('invalid characters');
-    expect(json.errorType).toEqual('invalid_characters');
+    expect(json.error).toContain("invalid characters");
+    expect(json.errorType).toEqual("invalid_characters");
   });
 
   it("should use cache when cacheKey is present", async () => {
@@ -265,7 +265,7 @@ describe("Worker Logic", () => {
     const response2 = await worker.fetch(
       new Request(url, requestOptions),
       env,
-      ctx
+      ctx,
     );
     expect(response2.status).toBe(200);
     expect(await response2.text()).toEqual('{"cached": true}');
@@ -281,7 +281,7 @@ describe("Worker Logic", () => {
     globalThis.fetch = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response('{"result": "search1"}', { status: 200 })
+        new Response('{"result": "search1"}', { status: 200 }),
       );
 
     await worker.fetch(
@@ -296,7 +296,7 @@ describe("Worker Logic", () => {
         body: JSON.stringify(body1),
       }),
       env,
-      ctx
+      ctx,
     );
 
     // Verify what was put in cache - uses URL string as cache key
@@ -308,7 +308,7 @@ describe("Worker Logic", () => {
     globalThis.fetch = vi
       .fn()
       .mockResolvedValueOnce(
-        new Response('{"result": "search2"}', { status: 200 })
+        new Response('{"result": "search2"}', { status: 200 }),
       );
 
     await worker.fetch(
@@ -323,7 +323,7 @@ describe("Worker Logic", () => {
         body: JSON.stringify(body2),
       }),
       env,
-      ctx
+      ctx,
     );
 
     expect(cachePut).toHaveBeenCalledTimes(2);
@@ -418,15 +418,15 @@ describe("Worker Logic", () => {
 
       // Should have lowercase params from env
       expect(forwardedUrl.searchParams.get("x-algolia-api-key")).toEqual(
-        "testtest"
+        "testtest",
       );
       expect(forwardedUrl.searchParams.get("x-algolia-application-id")).toEqual(
-        "testtest"
+        "testtest",
       );
 
       // Should NOT have the uppercase params (they were deleted)
       expect(forwardedUrl.searchParams.has("X-Algolia-Application-Id")).toBe(
-        false
+        false,
       );
       expect(forwardedUrl.searchParams.has("X-Algolia-API-Key")).toBe(false);
     });
@@ -461,10 +461,10 @@ describe("Worker Logic", () => {
 
       // Should have the insights agent
       expect(forwardedUrl.searchParams.get("X-Algolia-Agent")).toContain(
-        "insights-js"
+        "insights-js",
       );
       expect(forwardedUrl.searchParams.get("X-Algolia-Agent")).toContain(
-        "insights-middleware"
+        "insights-middleware",
       );
     });
 
@@ -587,7 +587,7 @@ describe("Worker Logic", () => {
           headers: {
             Origin: "https://www.avocadostore.de",
           },
-        }
+        },
       );
 
       const response = await worker.fetch(request, env, ctx);
@@ -611,7 +611,7 @@ describe("Worker Logic", () => {
       expect(response.status).toBe(400);
       const json = await response.json();
       expect(json.error).toEqual("Malformed JSON body");
-      expect(json.errorType).toEqual('malformed_json');
+      expect(json.errorType).toEqual("malformed_json");
       expect(json.details).toBeDefined();
     });
 
@@ -627,7 +627,7 @@ describe("Worker Logic", () => {
 
       expect(response.status).toEqual(204);
       expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
-        "http://localhost:3000"
+        "http://localhost:3000",
       );
     });
 
@@ -648,7 +648,7 @@ describe("Worker Logic", () => {
       const response = await worker.fetch(request, env, ctx);
 
       expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
-        "https://www.avocadostore.de"
+        "https://www.avocadostore.de",
       );
     });
 
@@ -669,7 +669,7 @@ describe("Worker Logic", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
-        "https://www.avocadostore.de"
+        "https://www.avocadostore.de",
       );
     });
 
@@ -690,7 +690,7 @@ describe("Worker Logic", () => {
             // No x-ssr-request header
           },
           body: JSON.stringify(validSearchBody),
-        }
+        },
       );
 
       await worker.fetch(request, env, ctx);
@@ -704,7 +704,7 @@ describe("Worker Logic", () => {
       globalThis.fetch = vi
         .fn()
         .mockResolvedValue(
-          new Response('{"error": "not found"}', { status: 404 })
+          new Response('{"error": "not found"}', { status: 404 }),
         );
 
       const validSearchBody = {
@@ -723,7 +723,7 @@ describe("Worker Logic", () => {
             "x-ssr-request": "ASDf928gh2efhajsdf!!",
           },
           body: JSON.stringify(validSearchBody),
-        }
+        },
       );
 
       const response = await worker.fetch(request, env, ctx);
@@ -763,9 +763,7 @@ describe("Worker Logic", () => {
 
     it("should return 502 when all Algolia hosts fail", async () => {
       // All hosts fail
-      globalThis.fetch = vi
-        .fn()
-        .mockRejectedValue(new Error("Network error"));
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
 
       const validSearchBody = {
         requests: [{ indexName: "test", query: "search" }],
@@ -784,10 +782,10 @@ describe("Worker Logic", () => {
 
       expect(response.status).toBe(502);
       const json = await response.json();
-      expect(json.error).toEqual('All Algolia hosts failed');
-      expect(json.errorType).toEqual('algolia');
-      expect(json.details).toContain('Tried');
-      expect(json.details).toContain('host');
+      expect(json.error).toEqual("All Algolia hosts failed");
+      expect(json.errorType).toEqual("algolia");
+      expect(json.details).toContain("Tried");
+      expect(json.details).toContain("host");
     });
 
     it("should use custom cache TTL for SSR requests", async () => {
@@ -809,7 +807,7 @@ describe("Worker Logic", () => {
             "x-ssr-request": "ASDf928gh2efhajsdf!!",
           },
           body: JSON.stringify(validSearchBody),
-        }
+        },
       );
 
       await worker.fetch(request, env, ctx);
@@ -831,7 +829,7 @@ describe("Worker Logic", () => {
 
       expect(response.status).toBe(204);
       expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
-        "https://shop.avocadostore.de"
+        "https://shop.avocadostore.de",
       );
       expect(response.headers.get("Vary")).toEqual("Origin");
     });
@@ -840,7 +838,7 @@ describe("Worker Logic", () => {
       globalThis.fetch = vi
         .fn()
         .mockResolvedValue(
-          new Response('{"message": "Rate limit exceeded"}', { status: 429 })
+          new Response('{"message": "Rate limit exceeded"}', { status: 429 }),
         );
 
       const validSearchBody = {
@@ -901,7 +899,7 @@ describe("Worker Logic", () => {
 
       expect(response.status).toBe(204);
       expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
-        "https://www.avocadostore.de"
+        "https://www.avocadostore.de",
       );
     });
 
@@ -946,7 +944,7 @@ describe("Worker Logic", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
-        "https://dash.cloudflare.com"
+        "https://dash.cloudflare.com",
       );
     });
 
@@ -962,7 +960,7 @@ describe("Worker Logic", () => {
 
       expect(response.status).toBe(204);
       expect(response.headers.get("Access-Control-Allow-Origin")).toEqual(
-        "https://www.avocadostore.dev"
+        "https://www.avocadostore.dev",
       );
     });
   });
